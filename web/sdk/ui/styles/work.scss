@@ -1,0 +1,51 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-work-block {
+  @include agent-ui-flex-column;
+  width: 100%;
+  margin: $agent-ui-spacing-xs 0;
+}
+
+.agent-ui-work-block-header {
+  @include agent-ui-button-reset;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: $agent-ui-spacing-xs 0;
+  color: $agent-ui-message-meta;
+  font-size: $agent-ui-font-size-sm;
+  text-align: left;
+
+  &:not(:disabled) {
+    cursor: pointer;
+    @include agent-ui-transition(color);
+
+    &:hover {
+      color: $agent-ui-text-secondary;
+    }
+  }
+}
+
+.agent-ui-work-block-header {
+  padding-left: $agent-ui-spacing-md;
+}
+
+.agent-ui-work-block-live {
+  .agent-ui-work-block-header {
+    padding-left: 0;
+  }
+}
+
+.agent-ui-work-block-body {
+  padding-top: $agent-ui-spacing-xs;
+  padding-left: $agent-ui-spacing-lg;
+}
+
+.agent-ui-work-block-inner {
+  width: 100%;
+}
+
+.agent-ui-work-block-collapsed .agent-ui-work-block-body {
+  display: none;
+}

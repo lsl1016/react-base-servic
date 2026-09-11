@@ -1,0 +1,236 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-async-task-trigger {
+  position: relative;
+}
+
+.agent-ui-async-task-badge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 2px solid $agent-ui-bg-primary;
+  border-radius: $agent-ui-radius-full;
+  background: $agent-ui-danger;
+  color: $agent-ui-text-inverse;
+  font-size: 9px;
+  font-weight: $agent-ui-font-weight-semibold;
+  line-height: 1;
+}
+
+.agent-ui-async-task-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: $agent-ui-z-popover;
+  background: transparent;
+}
+
+.agent-ui-async-task-popover {
+  position: absolute;
+  top: calc(#{$agent-ui-header-height} + #{$agent-ui-spacing-sm});
+  right: $agent-ui-spacing-lg;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100% - #{$agent-ui-spacing-xl * 2}));
+  max-height: min(460px, calc(100% - #{$agent-ui-header-height} - #{$agent-ui-spacing-xl * 2}));
+  border: 1px solid $agent-ui-border-color-light;
+  border-radius: $agent-ui-radius-xl;
+  background: $agent-ui-bg-primary;
+  box-shadow: $agent-ui-shadow-lg;
+  overflow: hidden;
+  animation: agent-ui-fade-in $agent-ui-transition-fast $agent-ui-transition-ease;
+}
+
+.agent-ui-async-task-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $agent-ui-spacing-lg;
+  padding: $agent-ui-spacing-lg $agent-ui-spacing-xl;
+  border-bottom: 1px solid $agent-ui-border-color-light;
+}
+
+.agent-ui-async-task-popover-title {
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-base;
+  font-weight: $agent-ui-font-weight-semibold;
+}
+
+.agent-ui-async-task-popover-subtitle {
+  margin-top: 1px;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+}
+
+.agent-ui-async-task-list {
+  overflow-y: auto;
+  @include agent-ui-scrollbar;
+}
+
+.agent-ui-async-task-item {
+  display: flex;
+  gap: $agent-ui-spacing-lg;
+  padding: $agent-ui-spacing-lg $agent-ui-spacing-xl;
+  border-bottom: 1px solid $agent-ui-border-color-light;
+  background: var(--agent-ui-task-success-bg, rgba(0, 127, 22, 0.035));
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.agent-ui-async-task-item-failed {
+  background: var(--agent-ui-task-failed-bg, rgba(255, 77, 79, 0.045));
+}
+
+.agent-ui-async-task-status-icon {
+  display: inline-flex;
+  margin-top: 1px;
+  color: $agent-ui-success;
+  flex-shrink: 0;
+}
+
+.agent-ui-async-task-item-failed .agent-ui-async-task-status-icon {
+  color: $agent-ui-danger;
+}
+
+.agent-ui-async-task-item-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-ui-async-task-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: $agent-ui-spacing-sm;
+  min-width: 0;
+}
+
+.agent-ui-async-task-item-title {
+  overflow: hidden;
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-sm;
+  font-weight: $agent-ui-font-weight-semibold;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-ui-async-task-scope-tag {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: $agent-ui-radius-sm;
+  background: $agent-ui-bg-secondary;
+  color: $agent-ui-text-tertiary;
+  font-size: 10px;
+}
+
+.agent-ui-async-task-item-meta {
+  display: flex;
+  align-items: center;
+  gap: $agent-ui-spacing-xs;
+  margin-top: $agent-ui-spacing-xs;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+}
+
+.agent-ui-async-task-error {
+  display: -webkit-box;
+  margin-top: $agent-ui-spacing-sm;
+  overflow: hidden;
+  color: $agent-ui-danger;
+  font-size: $agent-ui-font-size-xs;
+  line-height: $agent-ui-line-height-base;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.agent-ui-async-task-locate {
+  @include agent-ui-button-reset;
+  margin-top: $agent-ui-spacing-md;
+  color: $agent-ui-primary;
+  font-size: $agent-ui-font-size-xs;
+  font-weight: $agent-ui-font-weight-medium;
+
+  &:hover {
+    color: $agent-ui-primary-hover;
+    text-decoration: underline;
+  }
+}
+
+.agent-ui-async-task-toast {
+  position: absolute;
+  top: calc(#{$agent-ui-header-height} + #{$agent-ui-spacing-lg});
+  right: $agent-ui-spacing-xl;
+  z-index: $agent-ui-z-tooltip;
+  display: flex;
+  align-items: flex-start;
+  gap: $agent-ui-spacing-md;
+  width: min(340px, calc(100% - #{$agent-ui-spacing-xl * 2}));
+  padding: $agent-ui-spacing-lg;
+  border: 1px solid var(--agent-ui-task-success-border, rgba(0, 127, 22, 0.2));
+  border-radius: $agent-ui-radius-lg;
+  background: $agent-ui-bg-primary;
+  box-shadow: $agent-ui-shadow-lg;
+  animation: agent-ui-fade-in $agent-ui-transition-fast $agent-ui-transition-ease;
+}
+
+.agent-ui-async-task-toast[data-status='failed'] {
+  border-color: var(--agent-ui-task-failed-border, rgba(255, 77, 79, 0.28));
+}
+
+.agent-ui-async-task-toast-icon {
+  display: inline-flex;
+  color: $agent-ui-success;
+  flex-shrink: 0;
+}
+
+.agent-ui-async-task-toast[data-status='failed'] .agent-ui-async-task-toast-icon {
+  color: $agent-ui-danger;
+}
+
+.agent-ui-async-task-toast-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-ui-async-task-toast-title {
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-sm;
+  font-weight: $agent-ui-font-weight-semibold;
+}
+
+.agent-ui-async-task-toast-detail {
+  display: -webkit-box;
+  margin-top: $agent-ui-spacing-xs;
+  overflow: hidden;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+  line-height: $agent-ui-line-height-base;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.agent-ui-async-task-toast-close {
+  @include agent-ui-button-reset;
+  display: inline-flex;
+  color: $agent-ui-text-tertiary;
+  flex-shrink: 0;
+
+  &:hover {
+    color: $agent-ui-text-primary;
+  }
+}
+
+.agent-ui-tool-card-highlight {
+  outline: 2px solid $agent-ui-warning;
+  outline-offset: 2px;
+  transition: outline-color $agent-ui-transition-base $agent-ui-transition-ease;
+}

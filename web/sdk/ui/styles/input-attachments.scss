@@ -1,0 +1,99 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-input-attachments {
+  display: flex;
+  gap: $agent-ui-spacing-md;
+
+  overflow-x: auto;
+  @include agent-ui-scrollbar;
+  @include agent-scroll-inner-shadow-x;
+  padding: $agent-ui-spacing-lg 0;
+  padding-bottom: 0;
+}
+
+.agent-ui-input-attachment {
+  position: relative;
+  display: flex;
+  flex: 0 0 170px;
+  align-items: center;
+  gap: $agent-ui-spacing-md;
+  min-width: 0;
+  height: 52px;
+  padding: 7px 30px 7px 9px;
+  border: 1px solid $agent-ui-border-color-light;
+  border-radius: $agent-ui-radius-lg;
+  cursor: pointer;
+  &:hover {
+    border-color: $agent-ui-border-color;
+  }
+}
+
+.agent-ui-input-attachment-error {
+  border-color: rgba(255, 77, 79, 0.35);
+}
+
+.agent-ui-input-attachment-icon {
+  @include agent-ui-flex-center;
+  flex: 0 0 35px;
+  width: 35px;
+  height: 35px;
+  border-radius: $agent-ui-radius-md;
+  background: $agent-ui-bg-primary;
+  color: $agent-ui-text-secondary;
+  box-shadow: inset 0 0 0 1px $agent-ui-border-color-light;
+}
+
+.agent-ui-input-attachment-info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-ui-input-attachment-name,
+.agent-ui-input-attachment-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-ui-input-attachment-name {
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-sm;
+  font-weight: $agent-ui-font-weight-medium;
+  line-height: 18px;
+}
+
+.agent-ui-input-attachment-meta {
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+  line-height: 16px;
+
+  .agent-ui-input-attachment-error & {
+    color: $agent-ui-danger;
+  }
+}
+
+.agent-ui-input-attachment-remove {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-center;
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  border-radius: $agent-ui-radius-full;
+  color: $agent-ui-text-tertiary;
+
+  &:hover:not(:disabled) {
+    background: $agent-ui-bg-quaternary;
+    color: $agent-ui-text-primary;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}

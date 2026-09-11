@@ -1,0 +1,169 @@
+/**
+ * Agent UI 设计 Token
+ *
+ * SDK UI 组件的设计变量。
+ * 所有变量使用 agent-ui- 前缀，避免与宿主应用冲突。
+ */
+
+// ============================================================================
+// 颜色体系
+// ============================================================================
+
+// 主色
+$agent-ui-primary: var(--agent-ui-primary, #2677f0);
+$agent-ui-primary-hover: var(--agent-ui-primary-hover, #3c82eb);
+$agent-ui-primary-active: var(--agent-ui-primary-active, #1456b9);
+$agent-ui-primary-loading: var(--agent-ui-primary-loading, #6699e7);
+$agent-ui-primary-light: var(--agent-ui-primary-light, rgba(38, 119, 240, 0.1));
+$agent-ui-primary-border-soft: var(--agent-ui-primary-border-soft, rgba(38, 119, 240, 0.18));
+$agent-ui-primary-border: var(--agent-ui-primary-border, rgba(38, 119, 240, 0.24));
+$agent-ui-accent-purple: var(--agent-ui-accent-purple, #a259ff);
+
+// 语义色
+$agent-ui-success: var(--agent-ui-success, #007f16);
+$agent-ui-warning: var(--agent-ui-warning, #faad14);
+$agent-ui-warning-strong: var(--agent-ui-warning-strong, #a86f00);
+$agent-ui-warning-soft: var(--agent-ui-warning-soft, rgba(250, 173, 20, 0.2));
+$agent-ui-warning-soft-hover: var(--agent-ui-warning-soft-hover, rgba(250, 173, 20, 0.3));
+$agent-ui-error: var(--agent-ui-error, #6b7078);
+$agent-ui-danger: var(--agent-ui-danger, #ff4d4f);
+$agent-ui-info: var(--agent-ui-info, #2677f0);
+
+// 中性色
+$agent-ui-text-primary: var(--agent-ui-text-primary, #0e1017);
+$agent-ui-text-secondary: var(--agent-ui-text-secondary, rgba(0, 0, 0, 0.834));
+$agent-ui-text-tertiary: var(--agent-ui-text-tertiary, rgba(0, 0, 0, 0.6));
+$agent-ui-text-quaternary: var(--agent-ui-text-quaternary, rgba(0, 0, 0, 0.54));
+$agent-ui-text-disabled: var(--agent-ui-text-disabled, rgba(0, 0, 0, 0.25));
+$agent-ui-text-inverse: var(--agent-ui-text-inverse, #ffffff);
+$agent-ui-text-inverse-muted: var(--agent-ui-text-inverse-muted, rgba(255, 255, 255, 0.65));
+$agent-ui-text-tertiary-soft: var(--agent-ui-text-tertiary-soft, rgba(0, 0, 0, 0.055));
+$agent-ui-message-meta: var(--agent-ui-message-meta, #525c6d);
+
+$agent-ui-bg-primary: var(--agent-ui-bg-primary, #ffffff);
+$agent-ui-bg-secondary: var(--agent-ui-bg-secondary, #f5f6f8);
+$agent-ui-bg-tertiary: var(--agent-ui-bg-tertiary, #fafafa);
+$agent-ui-bg-quaternary: var(--agent-ui-bg-quaternary, #f1f1f1);
+
+$agent-ui-user-message-bg: var(--agent-ui-user-message-bg, #dfe7ff);
+$agent-ui-user-message-text: var(--agent-ui-user-message-text, #182b5c);
+$agent-ui-user-message-border: var(--agent-ui-user-message-border, #b8c8f5);
+
+$agent-ui-border-color: var(--agent-ui-border-color, #d2d7e0);
+$agent-ui-border-color-light: var(--agent-ui-border-color-light, #e5e8ed);
+$agent-ui-border-color-focus: var(--agent-ui-border-color-focus, #d3d3d3);
+$agent-ui-border-color-translucent: var(--agent-ui-border-color-translucent, rgba(224, 224, 224, 0.72));
+$agent-ui-border-color-strong: var(--agent-ui-border-color-strong, rgba(224, 224, 224, 0.9));
+$agent-ui-border-color-light-strong: var(--agent-ui-border-color-light-strong, rgba(240, 240, 240, 0.9));
+
+// 代码高亮语义色
+$agent-ui-code-comment: $agent-ui-text-tertiary;
+$agent-ui-code-keyword: $agent-ui-primary-active;
+$agent-ui-code-string: var(--agent-ui-code-string, #16775a);
+$agent-ui-code-number: var(--agent-ui-code-number, #a65316);
+$agent-ui-code-title: var(--agent-ui-code-title, #7048a8);
+$agent-ui-code-variable: var(--agent-ui-code-variable, #9b3f6f);
+$agent-ui-code-built-in: var(--agent-ui-code-built-in, #08788a);
+$agent-ui-code-meta: $agent-ui-text-secondary;
+$agent-ui-code-block-max-height: 250px;
+$agent-ui-code-block-toolbar-height: 36px;
+$agent-ui-code-block-fullscreen-z-index: 99999;
+
+// ============================================================================
+// 间距体系
+// ============================================================================
+
+$agent-ui-spacing-xs: 3px;
+$agent-ui-spacing-sm: 6px;
+$agent-ui-spacing-md: 8px;
+$agent-ui-spacing-lg: 12px;
+$agent-ui-spacing-xl: 16px;
+$agent-ui-spacing-xxl: 18px;
+
+// ============================================================================
+// 字体排版
+// ============================================================================
+
+$agent-ui-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+$agent-ui-font-size-xs: 12px;
+$agent-ui-font-size-sm: 13px;
+$agent-ui-font-size-base: 14px;
+$agent-ui-font-size-lg: 15px;
+$agent-ui-font-size-xl: 16px;
+$agent-ui-font-size-xxl: 20px;
+
+$agent-ui-font-weight-normal: 400;
+$agent-ui-font-weight-medium: 500;
+$agent-ui-font-weight-semibold: 600;
+
+$agent-ui-line-height-tight: 1.4;
+$agent-ui-line-height-base: 1.5;
+$agent-ui-line-height-loose: 1.8;
+
+// ============================================================================
+// 圆角
+// ============================================================================
+
+$agent-ui-radius-xs: 2px;
+$agent-ui-radius-sm: 4px;
+$agent-ui-radius-md: 6px;
+$agent-ui-radius-lg: 8px;
+$agent-ui-radius-xl: 12px;
+$agent-ui-radius-full: 9999px;
+
+// ============================================================================
+// 阴影
+// ============================================================================
+
+$agent-ui-scrollbar-thumb: var(--agent-ui-scrollbar-thumb, rgba(14, 16, 23, 0.1));
+$agent-ui-scrollbar-thumb-hover: var(--agent-ui-scrollbar-thumb-hover, rgba(14, 16, 23, 0.2));
+$agent-ui-scrollbar-thumb-active: var(--agent-ui-scrollbar-thumb-active, rgba(14, 16, 23, 0.22));
+$agent-ui-shadow-sm: var(--agent-ui-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+$agent-ui-shadow-md: var(--agent-ui-shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+$agent-ui-shadow-lg: var(--agent-ui-shadow-lg, 0 10px 15px -3px rgba(0, 0, 0, 0.1));
+$agent-ui-shadow-floating: var(--agent-ui-shadow-floating, 0 18px 52px rgba(14, 16, 23, 0.06));
+$agent-ui-shadow-drawer: var(--agent-ui-shadow-drawer, 0 -10px 28px rgba(14, 16, 23, 0.16));
+$agent-ui-shadow-session: var(--agent-ui-shadow-session, 0 6px 16px rgba(14, 16, 23, 0.06));
+
+// ============================================================================
+// 过渡动画
+// ============================================================================
+
+$agent-ui-transition-fast: 150ms;
+$agent-ui-transition-base: 150ms;
+$agent-ui-transition-slow: 150ms;
+$agent-ui-transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+// ============================================================================
+// 层级
+// ============================================================================
+
+$agent-ui-z-dropdown: 1000;
+$agent-ui-z-sticky: 1020;
+$agent-ui-z-fixed: 1030;
+$agent-ui-z-modal-backdrop: 1040;
+$agent-ui-z-modal: 1050;
+$agent-ui-z-popover: 1060;
+$agent-ui-z-tooltip: 1070;
+
+// ============================================================================
+// 布局
+// ============================================================================
+
+$agent-ui-panel-width: 480px;
+$agent-ui-panel-min-width: 400px;
+$agent-ui-panel-max-width: 640px;
+
+$agent-ui-header-height: 40px;
+$agent-ui-input-min-height: 72px;
+$agent-ui-input-max-height: 180px;
+$agent-ui-user-message-max-height: 180px;
+
+// ============================================================================
+// 断点
+// ============================================================================
+
+$agent-ui-breakpoint-sm: 640px;
+$agent-ui-breakpoint-md: 768px;
+$agent-ui-breakpoint-lg: 1024px;
+$agent-ui-breakpoint-xl: 1280px;

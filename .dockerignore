@@ -1,0 +1,41 @@
+# Created by .ignore support plugin (hsz.mobi)
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+.git
+*.md
+!service/react/build-in.md
+*/*/.git
+*.sh
+Dockerfile
+.gitlab-ci.yml
+web/sdk/node_modules
+web/sdk/dist
+
+
+# netbeans project files
+nbproject
+
+# zend studio for eclipse project files
+.buildpath
+.project
+.settings
+
+# sublime text project / workspace files
+*.sublime-project
+*.sublime-workspace
+
+# windows thumbnail cache
+Thumbs.db
+
+# Mac DS_Store Files
+.DS_Store
+### Example user template template
+### Example user template
+# IntelliJ project files
+*.iml

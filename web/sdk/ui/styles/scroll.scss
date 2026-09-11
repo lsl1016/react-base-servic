@@ -1,0 +1,101 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-message-list-shell {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.agent-ui-scroll-area {
+  height: 100%;
+  min-height: 0;
+  @include agent-scroll-inner-shadow;
+}
+
+.agent-ui-scroll-area-size-sm {
+  --agent-ui-scrollbar-size: 6px;
+  --agent-ui-scrollbar-inset: 0px;
+}
+
+.agent-ui-scroll-area-size-md {
+  --agent-ui-scrollbar-size: 9px;
+  --agent-ui-scrollbar-inset: 0px;
+}
+
+.agent-ui-scroll-area-size-lg {
+  --agent-ui-scrollbar-size: 11px;
+}
+
+.os-theme-agent-ui {
+  box-sizing: border-box;
+  --os-size: var(--agent-ui-scrollbar-size, 6px);
+  --os-padding-perpendicular: 0;
+  --os-padding-axis: 0;
+  --os-handle-max-size: 200px;
+  --os-handle-min-size: 50px;
+  --agent-ui-scrollbar-inset-default: 0px;
+  --os-track-border-radius: #{$agent-ui-radius-full};
+  --os-track-bg: transparent;
+  --os-track-bg-hover: transparent;
+  --os-track-bg-active: transparent;
+  --os-handle-border-radius: #{$agent-ui-radius-full};
+  --os-handle-bg: #{$agent-ui-scrollbar-thumb};
+  --os-handle-bg-hover: #{$agent-ui-scrollbar-thumb-hover};
+  --os-handle-bg-active: #{$agent-ui-scrollbar-thumb-active};
+  --os-handle-min-size: 32px;
+  --os-handle-interactive-area-offset: 4px;
+}
+
+.os-theme-agent-ui.os-scrollbar-horizontal {
+  left: var(--agent-ui-scrollbar-inset, var(--agent-ui-scrollbar-inset-default));
+  right: var(--agent-ui-scrollbar-inset, var(--agent-ui-scrollbar-inset-default));
+  bottom: var(--agent-ui-scrollbar-inset, var(--agent-ui-scrollbar-inset-default));
+  --os-handle-perpendicular-size: calc(var(--agent-ui-scrollbar-size, 6px));
+  --os-handle-perpendicular-size-hover: calc(var(--agent-ui-scrollbar-size, 6px));
+  --os-handle-perpendicular-size-active: calc(var(--agent-ui-scrollbar-size, 6px));
+}
+
+.os-theme-agent-ui.os-scrollbar-vertical {
+  top: var(--agent-ui-scrollbar-inset, var(--agent-ui-scrollbar-inset-default));
+  right: var(--agent-ui-scrollbar-inset, var(--agent-ui-scrollbar-inset-default));
+  bottom: var(--agent-ui-scrollbar-inset, var(--agent-ui-scrollbar-inset-default));
+  --os-handle-perpendicular-size: calc(var(--agent-ui-scrollbar-size, 6px));
+  --os-handle-perpendicular-size-hover: calc(var(--agent-ui-scrollbar-size, 6px));
+  --os-handle-perpendicular-size-active: calc(var(--agent-ui-scrollbar-size, 6px));
+}
+
+.agent-ui-smart-scroll-content {
+  @include agent-ui-flex-column;
+  min-height: 100%;
+  gap: 10px;
+}
+
+.agent-ui-scroll-to-bottom {
+  @include agent-ui-button-reset;
+  position: absolute;
+  right: 10px;
+  bottom: 18px;
+  z-index: 4;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid $agent-ui-border-color-light;
+  border-radius: 50%;
+  background: $agent-ui-primary ;
+  color: $agent-ui-text-inverse;
+  // box-shadow: 0 4px 10px rgba($agent-ui-text-primary, 0.08);
+  backdrop-filter: blur(8px);
+  @include agent-ui-transition(background-color, border-color, transform, box-shadow);
+
+  // &:hover {
+  //   background: color.adjust($agent-ui-primary, $lightness: -10%);
+  //   color: rgba($agent-ui-bg-primary, 0.96);
+  // }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}

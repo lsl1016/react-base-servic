@@ -1,0 +1,31 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-usage-stats {
+  display: flex;
+  gap: $agent-ui-spacing-lg;
+  font-size: $agent-ui-font-size-xs;
+  background: $agent-ui-primary;
+  @include agent-ui-flex-center;
+  border-radius: $agent-ui-radius-full;
+  padding: $agent-ui-spacing-xs $agent-ui-spacing-lg;
+  height: 24px;
+  color: $agent-ui-text-inverse;
+}
+
+.agent-ui-usage-item {
+  display: flex;
+  align-items: center;
+  gap: $agent-ui-spacing-xs;
+}
+
+.agent-ui-usage-label {
+  color: $agent-ui-text-tertiary;
+  font-weight: $agent-ui-font-weight-medium;
+}
+
+.agent-ui-usage-value {
+  color: $agent-ui-text-primary;
+  font-weight: $agent-ui-font-weight-semibold;
+  font-variant-numeric: tabular-nums;
+}

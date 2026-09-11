@@ -1,0 +1,844 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-plan-confirmation-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: $agent-ui-spacing-lg;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-xl;
+  background: $agent-ui-bg-primary;
+}
+
+.agent-ui-plan-confirmation-header {
+  @include agent-ui-button-reset;
+  @include agent-ui-focus-ring;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  align-items: center;
+  gap: $agent-ui-spacing-sm;
+  border-radius: $agent-ui-radius-md;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-ui-plan-confirmation-content {
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-lg;
+  margin-top: $agent-ui-spacing-lg;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.agent-ui-plan-confirmation-header-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: $agent-ui-primary-light;
+  color: $agent-ui-primary;
+}
+
+.agent-ui-plan-confirmation-title {
+  flex: 1;
+  min-width: 0;
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-lg;
+  font-weight: $agent-ui-font-weight-semibold;
+  line-height: $agent-ui-line-height-base;
+  overflow-wrap: anywhere;
+}
+
+.agent-ui-plan-confirmation-count {
+  flex-shrink: 0;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+  font-weight: $agent-ui-font-weight-normal;
+  white-space: nowrap;
+}
+
+.agent-ui-plan-collapse-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: $agent-ui-text-tertiary;
+}
+
+.agent-ui-plan-confirmation-overview {
+  color: $agent-ui-text-secondary;
+  font-size: $agent-ui-font-size-sm;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.agent-ui-plan-step-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-ui-plan-step-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: $agent-ui-spacing-md;
+  padding: 0 0 $agent-ui-spacing-xl;
+
+  &:not(:last-child)::after {
+    position: absolute;
+    top: 26px;
+    bottom: 2px;
+    left: 13px;
+    width: 1px;
+    background: $agent-ui-border-color;
+    content: '';
+  }
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+}
+
+.agent-ui-plan-step-marker {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: 50%;
+  background: $agent-ui-bg-tertiary;
+  color: $agent-ui-text-tertiary;
+}
+
+.agent-ui-plan-step-body {
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.agent-ui-plan-step-toggle {
+  @include agent-ui-button-reset;
+  @include agent-ui-focus-ring;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  gap: $agent-ui-spacing-sm;
+  border-radius: $agent-ui-radius-md;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-ui-plan-step-outline {
+  flex: 1;
+  min-width: 0;
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-base;
+  font-weight: $agent-ui-font-weight-semibold;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+.agent-ui-plan-step-collapse-icon {
+  display: inline-flex;
+  width: 20px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: $agent-ui-text-tertiary;
+}
+
+.agent-ui-plan-step-message {
+  margin-top: $agent-ui-spacing-xs;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-sm;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-ui-plan-confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.agent-ui-plan-confirmation-button {
+  min-width: 88px;
+  height: 32px;
+  padding: 0 $agent-ui-spacing-lg;
+  border: 0;
+  border-radius: $agent-ui-radius-md;
+  background: $agent-ui-primary;
+  color: $agent-ui-text-inverse;
+  font-size: $agent-ui-font-size-sm;
+  cursor: pointer;
+  @include agent-ui-transition(opacity, background-color);
+
+  &:hover:not(:disabled) {
+    opacity: 0.88;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+.agent-ui-message-list {
+  @include agent-ui-flex-column;
+  height: 100%;
+  overflow-y: auto;
+
+  gap: 0;
+  background: transparent;
+  @include agent-ui-scrollbar;
+  padding: 20px 20px;
+}
+
+.agent-ui-message-section {
+  @include agent-ui-flex-column;
+  width: 100%;
+  gap: $agent-ui-spacing-xs;
+}
+.content-html {
+  & > p:first-child{
+    margin-top: 0;
+  }
+}
+
+.agent-ui-compact-divider {
+  display: flex;
+  align-items: center;
+  gap: $agent-ui-spacing-md;
+  width: 100%;
+  margin: $agent-ui-spacing-xs 0;
+  color: $agent-ui-text-quaternary;
+  font-size: $agent-ui-font-size-xs;
+  cursor: default;
+}
+
+.agent-ui-compact-divider-line {
+  flex: 1;
+  height: 1px;
+  background: $agent-ui-border-color-light;
+}
+
+.agent-ui-compact-divider-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+
+
+
+.agent-ui-phase-gap-indicator {
+
+  display: inline-flex;
+  align-items: center;
+  gap: $agent-ui-spacing-sm;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 $agent-ui-spacing-xs;
+  padding-left: 0;
+  height: 26px;
+  font-size: $agent-ui-font-size-base;
+  background-size: 200% 100%;
+  background-position: 100% 50%;
+  background-image: linear-gradient(90deg,
+      color-mix(in srgb, currentColor 60%, transparent) 0%,
+      color-mix(in srgb, currentColor 60%, transparent) 25%,$agent-ui-text-quaternary 60%,
+      color-mix(in srgb, currentColor 60%, transparent) 75%,
+      color-mix(in srgb, currentColor 60%, transparent) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: $agent-ui-message-meta;
+  // animation:
+  //   agent-ui-phase-fade-in 0.4s ease-out both,
+  //   agent-ui-gradient-text 2s linear 0.4s infinite;
+
+  .agent-ui-phase-gap-indicator-text {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: inherit;
+    background-clip: inherit;
+    -webkit-background-clip: inherit;
+    color: inherit;
+  }
+
+  .agent-ui-phase-gap-indicator-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 0;
+    color: $agent-ui-primary;
+    font-size: 10px;
+
+    svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .agent-ui-phase-gap-indicator-chevron {
+    @include agent-ui-button-reset;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: $agent-ui-text-quaternary;
+    cursor: pointer;
+    @include agent-ui-transition(color);
+
+    &:hover {
+      color: $agent-ui-text-secondary;
+    }
+  }
+}
+
+.agent-ui-phase-gap-indicator-static {
+  animation: none;
+  background-image: none;
+  color: $agent-ui-message-meta;
+
+  .agent-ui-phase-gap-indicator-text {
+    background: none;
+    background-clip: unset;
+    -webkit-background-clip: unset;
+    color: inherit;
+  }
+}
+
+@keyframes agent-ui-gradient-text {
+  from {
+    background-position: 200% 0
+  }
+
+  to {
+    background-position: -200% 0
+  }
+}
+
+@keyframes agent-ui-phase-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+
+.agent-ui-message-user-card {
+  position: relative;
+  align-self: flex-end;
+  width: fit-content;
+  max-width: min(82%, 520px);
+  min-width: 0;
+  padding: 10px $agent-ui-spacing-xl;
+  box-sizing: border-box;
+  border: 1px solid $agent-ui-user-message-border;
+  border-radius: 16px 16px $agent-ui-radius-sm 16px;
+  background: $agent-ui-user-message-bg;
+  color: $agent-ui-user-message-text;
+  font-size: $agent-ui-font-size-lg;
+  line-height: 23px;
+  word-break: break-word;
+}
+
+.agent-ui-message-user-content {
+  max-height: calc(#{$agent-ui-user-message-max-height} - 22px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  word-break: break-word;
+  @include agent-ui-scrollbar;
+}
+
+.agent-ui-message-item {
+  @include agent-ui-flex-column;
+  width: 100%;
+  gap: $agent-ui-spacing-md;
+  animation: agent-ui-fade-in $agent-ui-transition-base $agent-ui-transition-ease;
+}
+
+.agent-ui-message-user,
+.agent-ui-message-assistant {
+  display: block;
+  width: 100%;
+}
+
+.agent-ui-message-body {
+  width: 100%;
+  min-width: 0;
+  @include agent-ui-flex-column;
+  gap: $agent-ui-spacing-xs;
+}
+
+.agent-ui-message-content {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: $agent-ui-line-height-loose;
+  word-break: break-word;
+}
+
+.agent-ui-message-tools {
+  @include agent-ui-flex-column;
+  gap: $agent-ui-spacing-xs;
+}
+
+.agent-ui-message-error {
+  .agent-ui-content-block {
+    color: $agent-ui-error;
+  }
+}
+
+.agent-ui-next-button {
+  @include agent-ui-button-reset;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 4px 8px 4px 0;
+  font-size: $agent-ui-font-size-sm;
+  background: $agent-ui-bg-primary;
+  border: 1px solid transparent;
+  padding: $agent-ui-spacing-xs $agent-ui-spacing-md;
+  color: $agent-ui-text-secondary;
+  border-radius: $agent-ui-radius-lg;
+  cursor: pointer;
+
+  .agent-ui-next-button-icon {
+    margin-right: $agent-ui-spacing-xs;
+    color: $agent-ui-primary;
+  }
+
+  &:hover {
+    border: 1px solid $agent-ui-border-color-light;
+  }
+}
+
+.agent-ui-message-empty {
+  @include agent-ui-flex-center;
+  @include agent-ui-flex-column;
+  flex: 1;
+  color: $agent-ui-text-tertiary;
+  padding: $agent-ui-spacing-xxl;
+}
+
+.agent-ui-message-empty-default {
+  @include agent-ui-flex-column;
+  align-items: center;
+  justify-content: center;
+  gap: $agent-ui-spacing-xl;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+}
+
+.agent-ui-message-empty-hero {
+  @include agent-ui-flex-column;
+  align-items: center;
+  gap: $agent-ui-spacing-md;
+}
+
+.agent-ui-message-empty-logo {
+  @include agent-ui-flex-center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  color: $agent-ui-text-inverse;
+  background: $agent-ui-primary;
+}
+
+.agent-ui-message-empty-title {
+  color: $agent-ui-text-primary;
+  font-size: $agent-ui-font-size-xxl;
+  font-weight: $agent-ui-font-weight-normal;
+  line-height: $agent-ui-line-height-tight;
+
+  span {
+    color: $agent-ui-primary;
+    font-weight: $agent-ui-font-weight-semibold;
+  }
+}
+
+.agent-ui-message-empty-subtitle {
+  color: $agent-ui-text-secondary;
+  font-size: $agent-ui-font-size-sm;
+  line-height: $agent-ui-line-height-loose;
+}
+
+.agent-ui-message-empty-tips {
+  display: grid;
+  gap: $agent-ui-spacing-sm;
+  width: 100%;
+  padding: $agent-ui-spacing-lg;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-lg;
+  background: $agent-ui-bg-primary;
+  color: $agent-ui-text-tertiary;
+  line-height: $agent-ui-line-height-base;
+  text-align: left;
+}
+
+.agent-ui-message-empty-tips-title {
+  color: $agent-ui-primary;
+  font-weight: $agent-ui-font-weight-semibold;
+}
+
+.agent-ui-message-loading {
+  @include agent-ui-flex-center;
+  @include agent-ui-flex-column;
+  gap: $agent-ui-spacing-md;
+  padding: $agent-ui-spacing-xl;
+  color: $agent-ui-text-secondary;
+}
+
+.agent-ui-loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid $agent-ui-border-color-light;
+  border-top-color: $agent-ui-primary;
+  border-radius: 50%;
+  animation: agent-ui-spin 0.8s linear infinite;
+}
+
+@keyframes agent-ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.agent-ui-loading-text {
+  font-size: $agent-ui-font-size-sm;
+}
+
+.agent-ui-todo-create-block {
+  @include agent-ui-flex-column;
+  width: 100%;
+  max-height: 120px;
+  background: $agent-ui-bg-primary;
+  gap: $agent-ui-spacing-xs;
+  padding: $agent-ui-spacing-sm $agent-ui-spacing-md;
+  border: 1px solid $agent-ui-border-color;
+  color: $agent-ui-text-primary;
+  border-radius: $agent-ui-radius-lg;
+  overflow: hidden;
+}
+
+.agent-ui-todo-create-header {
+  @include agent-ui-flex-between;
+  min-width: 0;
+  min-height: 28px;
+  flex: 0 0 auto;
+  gap: $agent-ui-spacing-md;
+  cursor: pointer;
+  padding-left: $agent-ui-spacing-xs;
+}
+
+.agent-ui-todo-create-heading,
+.agent-ui-todo-create-actions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.agent-ui-todo-create-heading {
+  gap: $agent-ui-spacing-xs;
+  color: $agent-ui-text-secondary;
+  font-weight: $agent-ui-font-weight-semibold;
+  .agent-ui-todo-create-icon{
+    color: $agent-ui-primary;
+  }
+}
+
+.agent-ui-todo-create-title {
+  @include truncate;
+}
+
+.agent-ui-todo-create-actions {
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.agent-ui-todo-create-count {
+  margin-right: $agent-ui-spacing-xs;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-sm;
+  white-space: nowrap;
+}
+
+.agent-ui-todo-create-toggle {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-center;
+  @include agent-ui-focus-ring;
+  width: 26px;
+  height: 26px;
+  color: $agent-ui-text-tertiary;
+  cursor: pointer;
+
+  &:hover {
+    color: $agent-ui-text-primary;
+  }
+}
+
+.agent-ui-todo-create-list {
+  min-height: 0;
+  margin: 0;
+  padding-inline-start: 2em;
+  flex: 1 1 auto;
+  list-style: decimal outside;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  @include agent-ui-scrollbar;
+}
+
+.agent-ui-todo-create-item {
+  min-height: 20px;
+  line-height: 20px;
+  overflow: hidden;
+
+  & + & {
+    margin-top: $agent-ui-spacing-sm;
+  }
+
+  &::marker {
+    color: $agent-ui-text-secondary;
+    content: counter(list-item) '、';
+  }
+
+  &[data-status='in_progress'] {
+    .agent-ui-todo-create-content,
+    .agent-ui-todo-create-status {
+      color: $agent-ui-primary;
+    }
+  }
+
+  &[data-status='completed'] {
+    .agent-ui-todo-create-content,
+    .agent-ui-todo-create-status {
+      color: $agent-ui-success;
+    }
+  }
+
+  &[data-status='cancelled'] {
+    .agent-ui-todo-create-content,
+    .agent-ui-todo-create-status {
+      color: $agent-ui-text-disabled;
+    }
+
+    .agent-ui-todo-create-content {
+      text-decoration: line-through;
+    }
+  }
+}
+
+.agent-ui-todo-create-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  color: $agent-ui-primary;
+}
+
+.agent-ui-todo-create-content {
+  min-width: 0;
+  color: $agent-ui-text-secondary;
+  overflow-wrap: anywhere;
+}
+
+.agent-ui-todo-create-status {
+  float: right;
+  margin-left: $agent-ui-spacing-md;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+  white-space: nowrap;
+}
+
+.agent-ui-todo-start-block {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: $agent-ui-spacing-xs;
+  color: $agent-ui-text-tertiary;
+  line-height: 20px;
+}
+
+.agent-ui-todo-start-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.agent-ui-todo-start-description {
+  flex: 1;
+  min-width: 0;
+  color: $agent-ui-text-secondary;
+  font-weight: $agent-ui-font-weight-medium;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-ui-todo-start-status {
+  flex-shrink: 0;
+  color: $agent-ui-primary;
+  font-size: $agent-ui-font-size-xs;
+  white-space: nowrap;
+}
+
+/* 轮次反馈条 */
+.agent-ui-feedback-bar {
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-md;
+  padding: 6px 2px;
+}
+
+.agent-ui-feedback-actions {
+  display: flex;
+  align-items: center;
+  gap: $agent-ui-spacing-xs;
+}
+
+.agent-ui-feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: $agent-ui-spacing-xs;
+  background: transparent;
+  border: none;
+  color: $agent-ui-text-tertiary;
+  font-size: 12px;
+  cursor: pointer;
+  transition: none;
+  padding: $agent-ui-spacing-xs $agent-ui-spacing-xs;
+  border-radius: $agent-ui-radius-md;
+
+  &:hover:not(:disabled) {
+    color: $agent-ui-primary;
+    border-color: $agent-ui-primary;
+  }
+
+
+  &.is-active {
+    color: $agent-ui-primary;
+    border-color: $agent-ui-primary;
+    background: $agent-ui-primary-light;
+  }
+}
+
+.agent-ui-feedback-btn-text {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.agent-ui-feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-md;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-lg;
+  padding: $agent-ui-spacing-lg;
+  max-width: 560px;
+  background: $agent-ui-bg-primary;
+}
+
+.agent-ui-feedback-textarea {
+  width: 100%;
+  min-height: $agent-ui-spacing-xxl;
+  resize: vertical;
+  border: 2px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-lg;
+  padding: $agent-ui-spacing-md;
+  font-size: $agent-ui-font-size-base;
+  line-height: $agent-ui-line-height-loose;
+  color: $agent-ui-text-primary;
+  background: $agent-ui-bg-primary;
+  outline: none;
+
+  &:focus {
+    border: 2px solid $agent-ui-primary-hover;
+  }
+}
+
+.agent-ui-feedback-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.agent-ui-feedback-count {
+  font-size: 12px;
+  color: $agent-ui-text-tertiary;
+}
+
+.agent-ui-feedback-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-ui-feedback-cancel,
+.agent-ui-feedback-submit {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid $agent-ui-border-color;
+  background: $agent-ui-bg-primary;
+  color: $agent-ui-text-secondary;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.agent-ui-feedback-submit {
+  border-color: $agent-ui-primary;
+  background: $agent-ui-primary;
+  color: $agent-ui-text-inverse;
+
+  &:hover:not(:disabled) {
+    background: $agent-ui-primary-hover;
+  }
+}

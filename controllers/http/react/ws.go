@@ -1,0 +1,264 @@
+package react
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"sync"
+	"time"
+
+	"react-base-service/components"
+	"react-base-service/components/params"
+	reactService "react-base-service/service/react"
+
+	"react-base-service/golib/zlog"
+	"github.com/gin-gonic/gin"
+)
+
+type wsEventWriter struct {
+	conn *reactService.WSConn
+	seq  int
+	mu   sync.Mutex
+}
+
+func (w *wsEventWriter) Write(event params.ReactEvent) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.seq++
+	event.Seq = w.seq
+	return w.conn.WriteEvent(event)
+}
+
+type wsReadResult struct {
+	msg params.ReactWSMessage
+	err error
+}
+
+// WS ReAct WebSocket 单入口
+// @Summary ReAct WebSocket
+// @Description 建立 ReAct 运行通道，支持 run/cancel 消息。服务端返回 thought_start/thought_delta/thought_end/content_start/content_delta/content_end/done/error/cancelled 事件。
+// @Tags React
+// @Router /react/ws [get]
+func WS(ctx *gin.Context) {
+	connectionAttemptID := sanitizeConnectionAttemptID(ctx.Query("connection_attempt_id"))
+	conn, err := reactService.Upgrade(ctx)
+	if err != nil {
+		logWSDiagnostic(ctx, "upgrade_failed", connectionAttemptID, nil, map[string]any{"error": err.Error()})
+		return
+	}
+	logWSDiagnostic(ctx, "connection_open", connectionAttemptID, conn, nil)
+	defer func() {
+		_ = conn.CloseWithCause("handler_exit")
+		logWSDiagnostic(ctx, "connection_closed", connectionAttemptID, conn, nil)
+	}()
+
+	writer := &wsEventWriter{conn: conn}
+
+	connCtx, connCancel := context.WithCancelCause(ctx.Request.Context())
+	defer connCancel(nil)
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+	go sendWSHeartbeat(ctx, writer.Write, conn, connectionAttemptID, heartbeatDone)
+
+	incoming := make(chan wsReadResult, 16)
+	go readWSMessages(conn, incoming)
+
+	var runMsgCh chan params.ReactWSMessage
+	var runDone chan struct{}
+	for {
+		select {
+		case item, ok := <-incoming:
+			if !ok || item.err != nil {
+				if item.err != nil {
+					fields := map[string]any{"error": item.err.Error()}
+					var readErr *reactService.WSReadEndError
+					if errors.As(item.err, &readErr) {
+						fields["endKind"] = readErr.Kind
+						fields["readStage"] = readErr.Stage
+						if readErr.Kind == reactService.WSReadEndCloseFrame {
+							fields["closeCode"] = readErr.CloseCode
+							fields["closeReason"] = readErr.CloseReason
+							fields["closeEchoFailed"] = readErr.Err != nil
+						}
+					}
+					logWSDiagnostic(ctx, "read_end", connectionAttemptID, conn, fields)
+				}
+				connCancel(reactService.ErrReactClientDisconnected)
+				if runMsgCh != nil {
+					close(runMsgCh)
+					runMsgCh = nil
+				}
+				if runDone != nil {
+					<-runDone
+				}
+				return
+			}
+			runMsgCh, runDone = handleWSMessage(ctx, connCtx, writer.Write, item.msg, runMsgCh, runDone)
+		case <-runDone:
+			if runMsgCh != nil {
+				close(runMsgCh)
+				runMsgCh = nil
+			}
+			runDone = nil
+		}
+	}
+}
+
+func readWSMessages(conn *reactService.WSConn, incoming chan<- wsReadResult) {
+	defer close(incoming)
+	for {
+		msg, err := conn.ReadMessage()
+		incoming <- wsReadResult{msg: msg, err: err}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// sendWSHeartbeat 周期发协议层 ping 驱动断连检测（浏览器自动回 pong，读侧靠 pong 刷新读超时），
+// 并保持原有 20s 一次的应用层 heartbeat 事件。任一写失败即关闭连接，唤醒阻塞的读协程走断连收敛。
+func sendWSHeartbeat(ctx *gin.Context, write reactService.EventWriter, conn *reactService.WSConn, connectionAttemptID string, done <-chan struct{}) {
+	const heartbeatEveryNPings = 4
+	ticker := time.NewTicker(reactService.WSPingInterval)
+	defer ticker.Stop()
+
+	tickCount := 0
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Request.Context().Done():
+			return
+		case <-ticker.C:
+			if err := conn.WritePing(); err != nil {
+				_ = conn.CloseWithCause("ping_write_failed")
+				logWSDiagnostic(ctx, "ping_write_failed", connectionAttemptID, conn, map[string]any{"error": err.Error()})
+				return
+			}
+			tickCount++
+			if tickCount%heartbeatEveryNPings != 0 {
+				continue
+			}
+			err := write(params.ReactEvent{
+				Type:    reactService.EventHeartbeat,
+				Payload: params.ReactHeartbeatPayload{Timestamp: time.Now().UnixMilli()},
+			})
+			if err != nil {
+				_ = conn.CloseWithCause("heartbeat_write_failed")
+				logWSDiagnostic(ctx, "heartbeat_write_failed", connectionAttemptID, conn, map[string]any{"error": err.Error()})
+				return
+			}
+		}
+	}
+}
+
+func logWSDiagnostic(ctx *gin.Context, event, connectionAttemptID string, conn *reactService.WSConn, fields map[string]any) {
+	payload := map[string]any{
+		"timestamp":           time.Now().UTC().Format(time.RFC3339Nano),
+		"event":               event,
+		"connectionAttemptId": connectionAttemptID,
+		"logId":               zlog.GetLogID(ctx),
+	}
+	if conn != nil {
+		payload["connection"] = conn.Diagnostics()
+	}
+	for key, value := range fields {
+		payload[key] = value
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		zlog.Infof(ctx, "[React.WS] diagnostic_marshal_failed: event=%s err=%v", event, err)
+		return
+	}
+	zlog.Infof(ctx, "[React.WS] diagnostic=%s", data)
+}
+
+func sanitizeConnectionAttemptID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) == 0 || len(value) > 128 {
+		return ""
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return ""
+	}
+	return value
+}
+
+func handleWSMessage(ctx *gin.Context, connCtx context.Context, write reactService.EventWriter, msg params.ReactWSMessage, runMsgCh chan params.ReactWSMessage, runDone chan struct{}) (chan params.ReactWSMessage, chan struct{}) {
+	switch strings.TrimSpace(msg.Type) {
+	case reactService.EventRun:
+		if runMsgCh != nil {
+			_ = write(params.ReactEvent{Type: reactService.EventError, RunID: msg.RunID, SessionID: msg.SessionID, Payload: params.ReactErrorPayload{ErrNo: components.ErrorReactRunFailed.ErrNo, ErrMsg: "react run is active"}})
+			return runMsgCh, runDone
+		}
+		return startWSRun(ctx, connCtx, write, msg)
+	case reactService.EventCancel:
+		if err := reactService.Cancel(ctx, msg.RunID, msg.SessionID); err != nil {
+			_ = write(params.ReactEvent{Type: reactService.EventError, RunID: msg.RunID, SessionID: msg.SessionID, Payload: params.ReactErrorPayload{ErrNo: components.ErrorReactRunFailed.ErrNo, ErrMsg: err.Error()}})
+			return runMsgCh, runDone
+		}
+		forwardWSRunMessage(runMsgCh, msg)
+	case reactService.EventClientToolUseEnd, reactService.EventToolUseAnswer:
+		if runMsgCh == nil {
+			_ = write(params.ReactEvent{Type: reactService.EventError, RunID: msg.RunID, SessionID: msg.SessionID, Payload: params.ReactErrorPayload{ErrNo: components.ErrorParamInvalid.ErrNo, ErrMsg: "no active react run"}})
+			return runMsgCh, runDone
+		}
+		forwardWSRunMessage(runMsgCh, msg)
+	default:
+		_ = write(params.ReactEvent{Type: reactService.EventError, RunID: msg.RunID, SessionID: msg.SessionID, Payload: params.ReactErrorPayload{ErrNo: components.ErrorParamInvalid.ErrNo, ErrMsg: "unsupported message type"}})
+	}
+	return runMsgCh, runDone
+}
+
+func startWSRun(ctx *gin.Context, connCtx context.Context, write reactService.EventWriter, msg params.ReactWSMessage) (chan params.ReactWSMessage, chan struct{}) {
+	var payload params.ReactRunPayload
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		_ = write(params.ReactEvent{Type: reactService.EventError, Payload: params.ReactErrorPayload{ErrNo: components.ErrorParamInvalid.ErrNo, ErrMsg: err.Error()}})
+		return nil, nil
+	}
+
+	runMsgCh := make(chan params.ReactWSMessage, 16)
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		readClient := func() (params.ReactWSMessage, error) {
+			clientMsg, ok := <-runMsgCh
+			if !ok {
+				return params.ReactWSMessage{}, reactService.ErrReactClientDisconnected
+			}
+			return clientMsg, nil
+		}
+		result, err := reactService.RunWithClientReaderContext(ctx, connCtx, payload, msg.SessionID, write, readClient)
+		if err == nil || reactService.IsReactRunCancelled(err) || reactService.IsReactClientDisconnected(err) {
+			return
+		}
+
+		zlog.Errorf(ctx, "[React.WS] run失败: err=%v", err)
+		if result != nil {
+			return
+		}
+		errorEvent := params.ReactEvent{
+			Type:      reactService.EventError,
+			RunID:     msg.RunID,
+			SessionID: msg.SessionID,
+			Payload:   params.ReactErrorPayload{ErrNo: components.ErrorReactRunFailed.ErrNo, ErrMsg: err.Error()},
+		}
+		_ = write(errorEvent)
+	}()
+	return runMsgCh, runDone
+}
+
+func forwardWSRunMessage(runMsgCh chan params.ReactWSMessage, msg params.ReactWSMessage) {
+	if runMsgCh == nil {
+		return
+	}
+	select {
+	case runMsgCh <- msg:
+	default:
+	}
+}

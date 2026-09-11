@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN" class="rp-auth-pending" data-app-url="/react-base-service/react/replay.js">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReAct 会话重放</title>
+  <link rel="stylesheet" href="/react-base-service/react/sdk/0.0.1.css" />
+  <link rel="stylesheet" href="/react-base-service/react/replay.css" />
+</head>
+<body>
+  <div id="auth-state" class="rp-auth-state" role="status">正在验证登录状态...</div>
+  <header class="rr-header">
+    <div class="rr-header-title">
+      <strong>会话重放</strong>
+      <span id="replay-title">正在载入...</span>
+    </div>
+    <div class="rr-header-actions">
+      <button id="replay-from-start" class="rr-header-button" type="button" disabled>从头播放</button>
+      <button id="toggle-replay-theme" class="rr-header-button rr-theme-button" type="button" aria-pressed="false">暗色</button>
+    </div>
+  </header>
+  <div id="replay-state" class="rr-state" role="status">正在读取会话事件...</div>
+  <div id="replay-agent-root" class="rr-agent-root rr-hidden"></div>
+  <script src="/react-base-service/react/ips.js"></script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+@use 'variables' as *;
+
+@mixin agent-ui-code-highlight {
+  .hljs-comment,
+  .hljs-quote {
+    color: $agent-ui-code-comment;
+    font-style: italic;
+  }
+
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-subst {
+    color: $agent-ui-code-keyword;
+  }
+
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-addition {
+    color: $agent-ui-code-string;
+  }
+
+  .hljs-number,
+  .hljs-literal {
+    color: $agent-ui-code-number;
+  }
+
+  .hljs-title,
+  .hljs-section,
+  .hljs-selector-id,
+  .hljs-selector-class {
+    color: $agent-ui-code-title;
+  }
+
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-property,
+  .hljs-attribute,
+  .hljs-attr {
+    color: $agent-ui-code-variable;
+  }
+
+  .hljs-built_in,
+  .hljs-type,
+  .hljs-symbol,
+  .hljs-bullet,
+  .hljs-link,
+  .hljs-name {
+    color: $agent-ui-code-built-in;
+  }
+
+  .hljs-meta {
+    color: $agent-ui-code-meta;
+  }
+
+  .hljs-deletion {
+    color: $agent-ui-danger;
+  }
+
+  .hljs-emphasis {
+    font-style: italic;
+  }
+
+  .hljs-strong {
+    font-weight: $agent-ui-font-weight-semibold;
+  }
+}

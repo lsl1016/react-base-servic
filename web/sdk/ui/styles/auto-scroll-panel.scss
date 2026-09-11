@@ -1,0 +1,14 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-auto-scroll-panel {
+  overflow-y: auto;
+  max-height: 300px;
+  @include agent-ui-scrollbar;
+  // @include agent-scroll-inner-shadow;
+}
+
+.agent-ui-auto-scroll-panel-stack {
+  @include agent-ui-flex-column;
+  gap: $agent-ui-spacing-xs;
+}

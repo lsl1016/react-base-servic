@@ -1,0 +1,267 @@
+/**
+ * Agent UI Mixins
+ *
+ * 可复用的 SCSS mixin 集合。
+ */
+
+@use 'variables' as *;
+
+// ============================================================================
+// 布局 Mixins
+// ============================================================================
+
+@mixin agent-ui-flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin agent-ui-flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@mixin truncate {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+
+@mixin center-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+@mixin center-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+@mixin agent-ui-flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+// ============================================================================
+// 滚动条 Mixins
+// ============================================================================
+
+@mixin agent-ui-scrollbar {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $agent-ui-scrollbar-thumb;
+    border-radius: $agent-ui-radius-full;
+
+    &:hover {
+      background: $agent-ui-scrollbar-thumb-hover;
+    }
+  }
+
+  scrollbar-width: thin;
+  scrollbar-color: $agent-ui-scrollbar-thumb transparent;
+}
+
+@mixin agent-scroll-inner-shadow {
+  --x-maskImage: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0px, black 0px, black calc(100% - 36px), rgba(0, 0, 0, 0) 100%);
+  --x-WebkitMaskImage: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0px, black 0px, black calc(100% - 36px), rgba(0, 0, 0, 0) 100%);
+  -webkit-mask-image: var(--x-maskImage);
+  mask-image: var(--x-maskImage);
+  padding-bottom: 36px;
+}
+
+@mixin agent-scroll-inner-shadow-x {
+  --x-maskImage: linear-gradient(to right, rgba(0, 0, 0, 0) 0px, black 0px, black calc(100% - 100px), rgba(0, 0, 0, 0.5) 100%);
+  --x-WebkitMaskImage: linear-gradient(to right, rgba(0, 0, 0, 0) 0px, black 0px, black calc(100% - 100px), rgba(0, 0, 0, 0.5) 100%);
+  -webkit-mask-image: var(--x-maskImage);
+  mask-image: var(--x-maskImage);
+  padding-right: 36px;
+}
+
+@mixin agent-ui-scrollbar-hidden {
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  scrollbar-width: none;
+}
+
+// ============================================================================
+// 文本 Mixins
+// ============================================================================
+
+@mixin agent-ui-text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin agent-ui-line-clamp($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@mixin agent-ui-gradient-text {
+  background-position: 100% 50%;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, currentColor 60%, transparent) 0%,
+    color-mix(in srgb, currentColor 60%, transparent) 25%,
+    $agent-ui-text-quaternary 60%,
+    color-mix(in srgb, currentColor 60%, transparent) 75%,
+    color-mix(in srgb, currentColor 60%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation:
+        agent-ui-gradient-text 2s linear 0.4s infinite;
+}
+@keyframes agent-ui-gradient-text {
+  from {
+    background-position: 200% 0
+  }
+
+  to {
+    background-position: -200% 0
+  }
+}
+
+// ============================================================================
+// 交互 Mixins
+// ============================================================================
+
+@mixin agent-ui-button-reset {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  outline: none;
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@mixin agent-ui-focus-ring {
+  &:focus-visible {
+    outline: 2px solid $agent-ui-primary;
+    outline-offset: 2px;
+  }
+}
+
+@mixin agent-ui-hover-bg($color: $agent-ui-bg-tertiary) {
+  &:hover:not(:disabled) {
+    background-color: $color;
+  }
+}
+
+// ============================================================================
+// 过渡动画 Mixins
+// ============================================================================
+
+@mixin agent-ui-transition($properties...) {
+  transition-property: $properties;
+  transition-duration: $agent-ui-transition-base;
+  transition-timing-function: $agent-ui-transition-ease;
+}
+
+@mixin agent-ui-transition-fast($properties...) {
+  transition-property: $properties;
+  transition-duration: $agent-ui-transition-fast;
+  transition-timing-function: $agent-ui-transition-ease;
+}
+
+// ============================================================================
+// 响应式 Mixins
+// ============================================================================
+
+@mixin agent-ui-media-sm {
+  @media (max-width: $agent-ui-breakpoint-sm) {
+    @content;
+  }
+}
+
+@mixin agent-ui-media-md {
+  @media (max-width: $agent-ui-breakpoint-md) {
+    @content;
+  }
+}
+
+@mixin agent-ui-media-lg {
+  @media (max-width: $agent-ui-breakpoint-lg) {
+    @content;
+  }
+}
+
+// ============================================================================
+// 动画 Mixins
+// ============================================================================
+
+@mixin agent-ui-fade-in($duration: $agent-ui-transition-base) {
+  animation: agent-ui-fade-in $duration $agent-ui-transition-ease;
+}
+
+@keyframes agent-ui-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@mixin agent-ui-slide-in-up($distance: 20px, $duration: $agent-ui-transition-base) {
+  animation: agent-ui-slide-in-up $duration $agent-ui-transition-ease;
+}
+
+@keyframes agent-ui-slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// ============================================================================
+// 工具 Mixins
+// ============================================================================
+
+@mixin agent-ui-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@mixin agent-ui-truncate-text($max-width: 100%) {
+  max-width: $max-width;
+  @include agent-ui-text-ellipsis;
+}

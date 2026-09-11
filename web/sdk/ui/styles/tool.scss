@@ -1,0 +1,188 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-tool-card {
+  @include agent-ui-flex-column;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-lg;
+  overflow: hidden;
+  background: $agent-ui-bg-primary;
+  box-shadow: none;
+  margin-top: 0;
+
+  &.agent-ui-tool-explore {
+    margin-top: 0;
+    border: none;
+    box-shadow: none;
+    background: none;
+
+
+    .agent-ui-tool-header {
+      padding: 0;
+      padding-left: $agent-ui-spacing-md;
+      margin-top: $agent-ui-spacing-xs;
+      margin-bottom: $agent-ui-spacing-xs;
+
+      &:hover {
+        background: none;
+      }
+    }
+
+    .agent-ui-tool-explore-prefix-text {
+      margin-right: $agent-ui-spacing-xs;
+      color: $agent-ui-warning-strong;
+      opacity: 0.8;
+      // font-weight: $agent-ui-font-weight-mediu;
+      // text-shadow: 0 0 10px rgba(color.adjust($agent-ui-warning, $lightness: -15%), 0.5);
+      margin-right: $agent-ui-spacing-xs;
+    }
+
+    .agent-ui-tool-info {
+      gap: 2px;
+      @include center-row;
+    }
+
+    .agent-ui-tool-duration {
+      font-size: inherit;
+      margin-right: 0;
+    }
+
+    .agent-ui-tool-status,
+    .agent-ui-tool-explore-status-waiting,
+    .agent-ui-tool-explore-status-done,
+    .agent-ui-tool-explore-status-error {
+      color: $agent-ui-text-secondary;
+    }
+
+  }
+}
+
+.agent-ui-tool-header {
+  @include agent-ui-flex-between;
+  padding: $agent-ui-spacing-md ;
+  padding-left: $agent-ui-spacing-lg;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  @include agent-ui-hover-bg;
+  @include agent-ui-transition(background-color);
+}
+
+.agent-ui-tool-info {
+  gap: $agent-ui-spacing-sm;
+  flex: 1;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  @include center-row;
+
+  .agent-ui-tool-name {
+    @include truncate;
+  }
+}
+
+
+.agent-ui-tool-status {
+  color: $agent-ui-message-meta;
+  @include agent-ui-flex-center;
+}
+
+.agent-ui-tool-status-running {
+  animation: agent-ui-pulse 1.5s ease-in-out infinite;
+  @include agent-ui-flex-center;
+}
+
+@keyframes agent-ui-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.agent-ui-tool-status-waiting {
+  color: $agent-ui-warning;
+  @include agent-ui-flex-center;
+}
+
+.agent-ui-tool-status-done {
+  color: $agent-ui-success;
+  @include agent-ui-flex-center;
+}
+
+.agent-ui-tool-status-error {
+  color: $agent-ui-danger;
+  @include agent-ui-flex-center;
+}
+
+.agent-ui-tool-duration {
+  color: $agent-ui-message-meta;
+  margin-right: $agent-ui-spacing-sm;
+}
+
+.agent-ui-tool-expand-icon {
+  color: $agent-ui-message-meta;
+  @include center-row;
+  justify-content: center
+}
+
+.agent-ui-tool-details {
+  @include agent-ui-flex-column;
+  border-top: 1px solid $agent-ui-border-color-light;
+  padding: $agent-ui-spacing-md;
+  gap: $agent-ui-spacing-md;
+}
+
+.agent-ui-tool-section {
+  @include agent-ui-flex-column;
+  gap: $agent-ui-spacing-xs;
+}
+
+.agent-ui-tool-section-title {
+  font-weight: $agent-ui-font-weight-semibold;
+  color: $agent-ui-text-secondary;
+  text-transform: uppercase;
+}
+
+.agent-ui-tool-section-content {
+  font-size: $agent-ui-font-size-sm;
+  color: $agent-ui-text-primary;
+}
+
+.agent-ui-tool-json {
+  font-family: 'Courier New', monospace;
+  background: $agent-ui-bg-secondary;
+  padding: $agent-ui-spacing-sm;
+  border-radius: $agent-ui-radius-sm;
+  overflow-x: auto;
+  margin: 0;
+  @include agent-ui-scrollbar;
+}
+
+.agent-ui-tool-error {
+  .agent-ui-tool-section-title {
+    color: $agent-ui-error;
+  }
+
+  .agent-ui-tool-section-content {
+    color: $agent-ui-error;
+  }
+}
+
+.agent-ui-tool-custom,
+.agent-ui-tool-custom-host {
+  min-width: 0;
+  width: 100%;
+}
+
+.agent-ui-tool-custom-error {
+  padding: $agent-ui-spacing-md;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-md;
+  color: $agent-ui-danger;
+  font-size: $agent-ui-font-size-sm;
+}

@@ -1,0 +1,162 @@
+:root {
+  --rr-header-bg: #ffffff;
+  --rr-header-text: #172033;
+  --rr-header-muted: #647085;
+  --rr-header-line: #d9e0ea;
+  --rr-button-bg: #ffffff;
+  --rr-button-hover: #f3f6fa;
+  --rr-state-bg: #f6f8fb;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --rr-header-bg: #17191e;
+  --rr-header-text: #f0f2f6;
+  --rr-header-muted: #a7adba;
+  --rr-header-line: #31343b;
+  --rr-button-bg: #202329;
+  --rr-button-hover: #292d35;
+  --rr-state-bg: #111317;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr);
+  background: var(--rr-state-bg);
+}
+
+button {
+  font: inherit;
+}
+
+.rr-header {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--rr-header-line);
+  color: var(--rr-header-text);
+  background: var(--rr-header-bg);
+}
+
+.rr-header-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rr-header-title strong {
+  flex: 0 0 auto;
+  font-size: 15px;
+}
+
+.rr-header-title span {
+  overflow: hidden;
+  color: var(--rr-header-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rr-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rr-header-button {
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--rr-header-line);
+  border-radius: 7px;
+  color: var(--rr-header-text);
+  background: var(--rr-button-bg);
+  cursor: pointer;
+}
+
+.rr-header-button:hover:not(:disabled) {
+  background: var(--rr-button-hover);
+}
+
+.rr-header-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.rr-agent-root,
+.rr-agent-root > .agent-ui {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rr-agent-root,
+.rr-state {
+  grid-row: 2;
+  min-height: 0;
+}
+
+.rp-auth-ready .rp-auth-state {
+  display: none;
+}
+
+.rp-auth-state {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: #647085;
+  background: #f6f8fb;
+  font-size: 14px;
+  text-align: center;
+}
+
+.rr-state {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: var(--rr-header-muted);
+  background: var(--rr-state-bg);
+  font-size: 14px;
+  text-align: center;
+}
+
+.rp-auth-state.rp-auth-error,
+.rr-state-error {
+  color: #b42318;
+}
+
+.rr-hidden {
+  display: none !important;
+}
+
+@media (max-width: 560px) {
+  .rr-header-title span {
+    display: none;
+  }
+
+  .rr-header-button {
+    padding: 0 8px;
+  }
+}

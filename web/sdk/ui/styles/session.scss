@@ -1,0 +1,114 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-session-list {
+  @include agent-ui-flex-column;
+  height: 100%;
+  min-height: 0;
+  background: $agent-ui-bg-primary;
+}
+
+.agent-ui-session-header {
+  @include agent-ui-flex-between;
+  flex-shrink: 0;
+  padding:$agent-ui-spacing-md $agent-ui-spacing-xl;
+  border-bottom: 1px solid $agent-ui-border-color-light;
+}
+
+.agent-ui-session-title {
+  font-size: $agent-ui-font-size-base;
+  font-weight: $agent-ui-font-weight-semibold;
+  color: $agent-ui-text-primary;
+  margin: 0;
+}
+
+.agent-ui-session-new-button {
+  @include agent-ui-button-reset;
+  height: 28px;
+  padding: 0 $agent-ui-spacing-lg;
+  border-radius: $agent-ui-radius-full;
+  font-size: $agent-ui-font-size-xs;
+  font-weight: $agent-ui-font-weight-medium;
+  background: $agent-ui-primary;
+  color: $agent-ui-text-inverse;
+  &:hover {
+    background: $agent-ui-primary-hover;
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+.agent-ui-session-items {
+  flex: 1;
+  min-height: 0;
+}
+
+.agent-ui-session-items-content {
+  @include agent-ui-flex-column;
+  min-height: 100%;
+  padding: $agent-ui-spacing-md;
+  gap: $agent-ui-spacing-sm;
+}
+
+.agent-ui-session-empty {
+  @include agent-ui-flex-center;
+  flex: 1;
+  padding: $agent-ui-spacing-xl;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-sm;
+}
+
+.agent-ui-session-item {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-column;
+  align-items: flex-start;
+  width: 100%;
+  padding: $agent-ui-spacing-lg;
+  border: 1px solid transparent;
+  border-radius: $agent-ui-radius-md;
+  text-align: left;
+  background: $agent-ui-bg-tertiary;
+  @include agent-ui-transition(background-color, border-color, box-shadow);
+
+  &:hover {
+    background: $agent-ui-bg-primary;
+    border-color: $agent-ui-primary-border-soft;
+    box-shadow: $agent-ui-shadow-session;
+  }
+
+  &.agent-ui-session-active {
+    background: $agent-ui-primary-light;
+    border-color: $agent-ui-primary-border;
+
+    .agent-ui-session-item-title {
+      color: $agent-ui-primary;
+      font-weight: $agent-ui-font-weight-semibold;
+    }
+  }
+}
+
+.agent-ui-session-item-title {
+  font-size: $agent-ui-font-size-sm;
+  font-weight: $agent-ui-font-weight-medium;
+  color: $agent-ui-text-primary;
+  margin-bottom: $agent-ui-spacing-xs;
+  @include agent-ui-text-ellipsis;
+  width: 100%;
+}
+
+.agent-ui-session-item-preview {
+  width: 100%;
+  margin-bottom: $agent-ui-spacing-xs;
+  font-size: $agent-ui-font-size-xs;
+  color: $agent-ui-text-secondary;
+  @include agent-ui-text-ellipsis;
+}
+
+.agent-ui-session-item-meta {
+  display: flex;
+  gap: $agent-ui-spacing-md;
+  font-size: $agent-ui-font-size-xs;
+  color: $agent-ui-text-tertiary;
+}

@@ -1,0 +1,10 @@
+# 基础框架配置（日志、HTTP 服务端口）
+pprof:
+  enable: false
+
+log:
+  level: debug
+  stdout: true
+
+server:
+  address: ":8180"

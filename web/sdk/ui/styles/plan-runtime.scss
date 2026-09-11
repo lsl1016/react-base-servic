@@ -1,0 +1,196 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-plan-runtime-card {
+  width: 100%;
+  border: 1px solid $agent-ui-border-color-light;
+  border-radius: $agent-ui-radius-lg;
+  background: $agent-ui-bg-primary;
+  overflow: hidden;
+  box-shadow: $agent-ui-shadow-sm;
+
+  &[data-status='FAILED'] {
+    border-color: color-mix(in srgb, $agent-ui-danger 35%, $agent-ui-border-color-light);
+  }
+
+  &[data-status='FAILED'] .agent-ui-plan-runtime-title,
+  &[data-status='FAILED'] .agent-ui-plan-runtime-subtitle {
+    color: $agent-ui-danger;
+  }
+}
+
+.agent-ui-plan-runtime-header,
+.agent-ui-plan-step-header {
+  @include agent-ui-button-reset;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  text-align: left;
+}
+
+.agent-ui-plan-runtime-header {
+  gap: $agent-ui-spacing-sm;
+  padding: $agent-ui-spacing-lg;
+}
+
+.agent-ui-plan-runtime-chevron {
+  display: inline-flex;
+  color: $agent-ui-text-tertiary;
+}
+
+.agent-ui-plan-runtime-heading,
+.agent-ui-plan-step-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agent-ui-plan-runtime-title,
+.agent-ui-plan-step-name {
+  color: $agent-ui-text-primary;
+  font-weight: $agent-ui-font-weight-semibold;
+}
+
+.agent-ui-plan-runtime-subtitle,
+.agent-ui-plan-step-summary,
+.agent-ui-plan-step-status {
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+}
+
+.agent-ui-plan-runtime-body {
+  padding: 0 $agent-ui-spacing-lg $agent-ui-spacing-lg;
+}
+
+.agent-ui-plan-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-sm;
+}
+
+.agent-ui-plan-step {
+  border-left: 2px solid $agent-ui-border-color-light;
+  padding-left: $agent-ui-spacing-md;
+}
+
+.agent-ui-plan-step[data-status='RUNNING'] { border-left-color: $agent-ui-primary; }
+.agent-ui-plan-step[data-status='SUCCEEDED'] { border-left-color: $agent-ui-success; }
+.agent-ui-plan-step[data-status='FAILED'] { border-left-color: $agent-ui-danger; }
+.agent-ui-plan-step[data-status='WAIT_USER_INPUT'],
+.agent-ui-plan-step[data-status='WAIT_EXTERNAL_TASK'] { border-left-color: $agent-ui-warning; }
+
+.agent-ui-plan-step-header {
+  gap: $agent-ui-spacing-sm;
+  padding: $agent-ui-spacing-sm 0;
+}
+
+.agent-ui-plan-step-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: $agent-ui-bg-secondary;
+  color: $agent-ui-text-secondary;
+  font-size: $agent-ui-font-size-xs;
+  flex-shrink: 0;
+}
+
+.agent-ui-plan-step-status { flex-shrink: 0; }
+
+.agent-ui-plan-step-detail {
+  margin: $agent-ui-spacing-xs 0 $agent-ui-spacing-md $agent-ui-spacing-xl;
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-sm;
+}
+
+.agent-ui-plan-step-detail pre,
+.agent-ui-plan-result pre {
+  margin: 0;
+  padding: $agent-ui-spacing-md;
+  border-radius: $agent-ui-radius-md;
+  background: $agent-ui-bg-secondary;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: $agent-ui-font-size-xs;
+}
+
+.agent-ui-plan-attempt,
+.agent-ui-plan-result {
+  border: 1px solid $agent-ui-border-color-light;
+  border-radius: $agent-ui-radius-md;
+  padding: $agent-ui-spacing-sm $agent-ui-spacing-md;
+}
+
+.agent-ui-plan-attempt > summary,
+.agent-ui-plan-result > summary {
+  cursor: pointer;
+  color: $agent-ui-text-secondary;
+  font-size: $agent-ui-font-size-sm;
+}
+
+.agent-ui-plan-attempt-body,
+.agent-ui-plan-round {
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-sm;
+  margin-top: $agent-ui-spacing-sm;
+}
+
+.agent-ui-plan-wait-card {
+  margin-top: $agent-ui-spacing-lg;
+  padding: $agent-ui-spacing-lg;
+  border: 1px solid color-mix(in srgb, $agent-ui-warning 35%, transparent);
+  border-radius: $agent-ui-radius-md;
+  background: color-mix(in srgb, $agent-ui-warning 7%, $agent-ui-bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-md;
+}
+
+.agent-ui-plan-wait-title {
+  font-weight: $agent-ui-font-weight-semibold;
+  color: $agent-ui-text-primary;
+}
+
+.agent-ui-plan-wait-question { color: $agent-ui-text-secondary; }
+
+.agent-ui-plan-wait-field {
+  display: flex;
+  flex-direction: column;
+  gap: $agent-ui-spacing-xs;
+  color: $agent-ui-text-secondary;
+  font-size: $agent-ui-font-size-sm;
+}
+
+.agent-ui-plan-wait-field input,
+.agent-ui-plan-wait-field select {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-md;
+  padding: 0 $agent-ui-spacing-md;
+  background: $agent-ui-bg-primary;
+  color: $agent-ui-text-primary;
+  outline: none;
+}
+
+.agent-ui-plan-resume-button {
+  @include agent-ui-button-reset;
+  align-self: flex-end;
+  padding: $agent-ui-spacing-sm $agent-ui-spacing-lg;
+  border-radius: $agent-ui-radius-md;
+  background: $agent-ui-primary;
+  color: $agent-ui-text-inverse;
+  font-weight: $agent-ui-font-weight-medium;
+
+  &:disabled { opacity: .45; cursor: not-allowed; }
+}
+
+.agent-ui-plan-result { margin-top: $agent-ui-spacing-lg; }
+.agent-ui-plan-error { margin-top: $agent-ui-spacing-md; color: $agent-ui-danger; }
+.agent-ui-plan-detail-empty { color: $agent-ui-text-tertiary; font-size: $agent-ui-font-size-sm; }

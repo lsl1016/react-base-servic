@@ -1,0 +1,39 @@
+# 存储资源连接配置
+mysql:
+  llm:
+    addr: '127.0.0.1:3307'
+    connMaxLifeTime: 3600s
+    connTimeOut: 1500ms
+    database: llm
+    maxIdleTime: 300s
+    maxidleconns: 100
+    maxopenconns: 100
+    readTimeOut: 3s
+    service: llm
+    user: 'root'
+    password: 'root'
+    writeTimeOut: 3s
+
+redis:
+  demo:
+    addr: '127.0.0.1:6379'
+    connTimeOut: 1200ms
+    idleTimeout: 5m
+    maxActive: 100
+    maxConnLifetime: 10m
+    maxIdle: 100
+    readTimeOut: 1200ms
+    service: demo
+    user: ''
+    password: ''
+    writeTimeOut: 1200ms
+
+cos:
+  secretID: 'REPLACE_WITH_COS_SECRET_ID'
+  secretKey: 'REPLACE_WITH_COS_SECRET_KEY'
+  bucket: 'REPLACE_WITH_COS_BUCKET'
+  appID: 'REPLACE_WITH_COS_APP_ID'
+  region: 'ap-beijing'
+  endpoint: 'cos.ap-beijing.myqcloud.com'
+  timeout: 30
+  pathPrefix: 'react-base/llm'

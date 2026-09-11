@@ -1,0 +1,62 @@
+# Created by .ignore support plugin (hsz.mobi)
+### Go template
+# Binaries for programs and plugins
+*.exe
+*.exe~
+web/sdk/package-lock.json
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+out
+gen
+
+# VsCode project files
+.vscode/*
+
+.DS_Store
+
+*.log
+*.zip
+
+log/*
+*.swp
+*.swo
+
+go.sock
+
+node_modules/
+
+react-base-service
+/conf/secret
+
+# Cursor rules
+.cursor/
+/.mimosa/
+/docs/skills/
+/api/pythonexec/log/
+/tmp/
+/.gocache/
+/.cache/
+/docs/python链路代码逻辑与数据流.md
+/AGENTS.md
+/web/sdk/dist/
+/scripts/rag/
+*.log.*
+/docs/backups/
+/docs/ragflow/
+/docs/ragflow_manifests/
+/outputs/
+
+# Analysis and evaluation workspaces may contain raw SQL, conversations, and run artifacts.
+# Only reviewed assets should be force-added to Git.

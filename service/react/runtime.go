@@ -1,0 +1,674 @@
+package react
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"strings"
+	"sync"
+
+	llm "react-base-service/api/llm"
+	"react-base-service/components"
+	"react-base-service/components/params"
+	"react-base-service/components/route"
+	"react-base-service/conf"
+	"react-base-service/helpers"
+	model "react-base-service/models/llm"
+	apikeyService "react-base-service/service/apikey"
+	systempromptService "react-base-service/service/systemprompt"
+	toolService "react-base-service/service/tool"
+
+	"react-base-service/golib/zlog"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+const (
+	EventRun                   = "run"
+	EventCancel                = "cancel"
+	EventToolUseAnswer         = "tool_use_answer"
+	EventThoughtStart          = "thought_start"
+	EventThoughtDelta          = "thought_delta"
+	EventThoughtEnd            = "thought_end"
+	EventContentStart          = "content_start"
+	EventContentDelta          = "content_delta"
+	EventContentEnd            = "content_end"
+	EventDone                  = "done"
+	EventError                 = "error"
+	EventCancelled             = "cancelled"
+	EventHeartbeat             = "heartbeat"
+	defaultReactSessionType    = model.ReactSessionTypeChat
+	maxReactSessionTitleLength = 20
+)
+
+// EventWriter 屏蔽底层连接类型，Runtime 只负责发送标准 ReAct 事件。
+type EventWriter func(params.ReactEvent) error
+
+type RunResult struct {
+	RunID     string `json:"runId"`
+	SessionID string `json:"sessionId"`
+}
+
+type runtimeRequest struct {
+	payload                 params.ReactRunPayload
+	inputSessionID          string
+	userName                string
+	apiKey                  string
+	resolvedModelKey        string
+	resolvedModelVersion    string
+	systemPrompt            string
+	skillsIndexSnapshotJSON string
+	toolsIndexSnapshotJSON  string
+	routeValuesJSON         string
+	historyMessages         []llm.ChatMessage
+	historyMessageRefs      [][]reactMessageRef
+	modelUserMessage        llm.ChatMessage
+	modelUserMessageRef     reactMessageRef
+	attachments             []reactAttachmentSnapshot
+	callerRuntimeContext    components.CallerRuntimeContext
+	todoStateJSON           string
+	prevActiveToolIDsJSON   string
+	prevActiveToolDefsJSON  string
+}
+
+type reactMessageRef struct {
+	RunID     string `json:"runId,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+	Seq       int    `json:"seq,omitempty"`
+}
+
+type compactSummaryContent struct {
+	Summary        string            `json:"summary"`
+	CoveredThrough []reactMessageRef `json:"coveredThrough,omitempty"`
+}
+
+// runEventEmitter 负责给运行时事件补齐 runId/sessionId/seq，并串行写出，避免并发工具事件打乱顺序。
+type runEventEmitter struct {
+	runID     string
+	sessionID string
+	seq       int
+	write     EventWriter
+	mu        sync.Mutex
+}
+
+// Emit 统一封装 ReAct 对外事件信封；业务侧只需要传事件类型和 payload。
+func (e *runEventEmitter) Emit(eventType string, payload any) error {
+	return e.emit(eventType, nil, payload)
+}
+
+// EmitStep 发送带 ReAct 步骤归属的事件，stepIndex 放在事件外层而不是 payload 内。
+func (e *runEventEmitter) EmitStep(stepIndex int, eventType string, payload any) error {
+	return e.emit(eventType, &stepIndex, payload)
+}
+
+func (e *runEventEmitter) emit(eventType string, stepIndex *int, payload any) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.seq++
+	return e.write(params.ReactEvent{
+		Type:      eventType,
+		Seq:       e.seq,
+		RunID:     e.runID,
+		SessionID: e.sessionID,
+		StepIndex: stepIndex,
+		Payload:   payload,
+	})
+}
+
+// generateRunID 生成一次 ReAct run 的业务 ID，统一使用 run_ 前缀方便日志和排查。
+func generateRunID() string {
+	return "run_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+}
+
+// generateSessionID 生成 ReAct 会话 ID，创建新会话时由后端兜底分配。
+func generateSessionID() string {
+	return "session_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+}
+
+// generateMessageID 生成 ReAct 消息 ID，用于串联 run 内的用户输入、模型输出和工具结果。
+func generateMessageID() string {
+	return "msg_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+}
+
+// normalizeSessionType 将未识别的会话类型收敛为默认 chat，避免外部透传非法类型进入存储层。
+func normalizeSessionType(t string) string {
+	switch strings.TrimSpace(t) {
+	case model.ReactSessionTypeChat:
+		return model.ReactSessionTypeChat
+	default:
+		return defaultReactSessionType
+	}
+}
+
+// normalizeMaxSteps 统一 run 最大步数默认值，防止调用方未传时主循环直接跳过。
+func normalizeMaxSteps(maxSteps int) int {
+	if maxSteps <= 0 {
+		return conf.GetReactRuntimeConfig().MaxSteps
+	}
+	return maxSteps
+}
+
+// buildSessionTitle 为 ReAct 会话构造默认标题。
+func buildSessionTitle(content string) string {
+	v := strings.TrimSpace(content)
+	if v == "" {
+		return "新对话"
+	}
+	runes := []rune(v)
+	if len(runes) <= maxReactSessionTitleLength {
+		return v
+	}
+	return string(runes[:maxReactSessionTitleLength]) + "..."
+}
+
+// Run 启动一次无前端工具回填能力的 ReAct run，适用于普通 HTTP/SSE 等只写通道场景。
+func Run(ctx *gin.Context, payload params.ReactRunPayload, sessionID string, write EventWriter) (*RunResult, error) {
+	return run(ctx, ctx.Request.Context(), payload, sessionID, write, nil)
+}
+
+// RunWithClientReader 启动一次支持 client tool 回填的 ReAct run，WebSocket 场景会传入读消息函数。
+func RunWithClientReader(ctx *gin.Context, payload params.ReactRunPayload, sessionID string, write EventWriter, readClient ClientMessageReader) (*RunResult, error) {
+	return run(ctx, ctx.Request.Context(), payload, sessionID, write, readClient)
+}
+
+// RunWithClientReaderContext 使用指定父 context 启动支持 client tool 回填的 ReAct run。
+func RunWithClientReaderContext(ctx *gin.Context, parent context.Context, payload params.ReactRunPayload, sessionID string, write EventWriter, readClient ClientMessageReader) (*RunResult, error) {
+	if parent == nil {
+		parent = ctx.Request.Context()
+	}
+	return run(ctx, parent, payload, sessionID, write, readClient)
+}
+
+// run 负责创建 session/run、持久化用户输入，并把后续推理循环交给 executeReactLoop。
+func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayload, sessionID string, write EventWriter, readClient ClientMessageReader) (*RunResult, error) {
+	req, err := prepareRuntimeRequest(ctx, payload, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
+	initialTools := internalMetaToolDefinitions()
+	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON))
+	if err := checkEntryInputTokens(initialSystemContent, req.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
+		return nil, err
+	}
+
+	runID, sessionID, err := createReactRunContext(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.callerRuntimeContext.SessionID == "" {
+		req.callerRuntimeContext.SessionID = sessionID
+	}
+	runCtx, cancel := context.WithCancelCause(components.ContextWithCallerRuntime(parent, req.callerRuntimeContext))
+	registerReactRunCancel(runID, cancel)
+	defer func() {
+		cancel(nil)
+		unregisterReactRunCancel(runID)
+	}()
+
+	emitter := &runEventEmitter{runID: runID, sessionID: sessionID, write: write}
+	if err := executeReactLoop(ctx, runCtx, req, runID, sessionID, emitter, readClient); err != nil {
+		if IsReactClientDisconnected(context.Cause(runCtx)) {
+			err = ErrReactClientDisconnected
+		}
+		if IsReactRunCancelled(err) {
+			_ = model.UpdateReactRunByRunID(ctx, runID, map[string]any{"state": model.ReactRunStateCancelled})
+			cancelledRun, _ := model.GetReactRunByRunID(ctx, runID)
+			usedTokens, maxTokens := reactContextWindowFields(cancelledRun)
+			_ = emitter.Emit(EventCancelled, params.ReactCancelledPayload{OK: true, Reason: "本次运行已被用户取消", ContextUsedTokens: usedTokens, MaxContextTokens: maxTokens})
+			return &RunResult{RunID: runID, SessionID: sessionID}, err
+		}
+
+		errorMessage := err.Error()
+		if IsReactClientDisconnected(err) {
+			errorMessage = "client disconnected"
+		}
+		run, getErr := model.GetReactRunByRunID(ctx, runID)
+		if getErr == nil && run != nil && run.State == model.ReactRunStateCancelling {
+			errorMessage = "cancel failed: " + errorMessage
+		}
+
+		zlog.Errorf(ctx, "[react.Run] run执行失败: runId=%s, err=%v", runID, err)
+		_ = model.UpdateReactRunByRunID(ctx, runID, map[string]any{
+			"state":         model.ReactRunStateError,
+			"error_message": errorMessage,
+		})
+		if !IsReactClientDisconnected(err) {
+			usedTokens, maxTokens := reactContextWindowFields(run)
+			_ = emitter.Emit(EventError, params.ReactErrorPayload{ErrNo: components.ErrorReactRunFailed.ErrNo, ErrMsg: errorMessage, ContextUsedTokens: usedTokens, MaxContextTokens: maxTokens})
+		}
+		return &RunResult{RunID: runID, SessionID: sessionID}, err
+	}
+
+	return &RunResult{RunID: runID, SessionID: sessionID}, nil
+}
+
+// reactContextWindowFields 在 run 结束(含 error/cancelled)时计算上下文窗口与已用 token。
+// 终止路径拿不到本轮 LLM 的 token,但 maxContextTokens 来自配置、已用 token 来自上一轮成功调用写库的 last tokens,均可返回。
+func reactContextWindowFields(run *model.ReactRun) (usedTokens, maxTokens int) {
+	maxTokens = conf.GetReactRuntimeConfig().ContextCompact.TokenTrigger
+	if run != nil {
+		usedTokens = run.LastInputTokens + run.LastOutputTokens
+	}
+	return usedTokens, maxTokens
+}
+
+// createReactRunContext 在一个写事务内完成会话确认、并发 run 检查、run 创建和用户输入持久化。
+func createReactRunContext(ctx *gin.Context, req *runtimeRequest) (string, string, error) {
+	var runID string
+	var sessionID string
+
+	err := model.GetLLMDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+
+		// run 启动阶段必须在同一写事务中完成，避免 session 刚创建后又被后续写入读到不一致状态。
+		sessionID, err = getOrCreateReactSession(ctx, tx, req)
+		if err != nil {
+			return err
+		}
+
+		// session 行已在 getOrCreateReactSession 中加锁，这里检查 active run 可以挡住同一会话并发启动。
+		active, err := model.HasActiveReactRunWithDB(ctx, tx, sessionID)
+		if err != nil {
+			return err
+		}
+		if active {
+			return components.ErrorReactRunActive.Sprintf(sessionID)
+		}
+
+		storedMessages, err := model.GetOuterReactMessagesBySessionIDWithDB(ctx, tx, sessionID)
+		if err != nil {
+			return err
+		}
+		req.historyMessages, req.historyMessageRefs = reactMessagesToChatMessagesWithRefs(storedMessages)
+
+		latestRun, err := model.GetLatestReactRunBySessionIDWithDB(ctx, tx, sessionID)
+		if err != nil {
+			return err
+		}
+		if latestRun != nil {
+			req.todoStateJSON = latestRun.TodoStateJSON
+			req.prevActiveToolIDsJSON = latestRun.ActiveToolIDs
+			req.prevActiveToolDefsJSON = latestRun.ActiveToolDefsJSON
+		}
+		runID = generateRunID()
+		req.modelUserMessageRef = reactMessageRef{RunID: runID, MessageID: generateMessageID(), Seq: 1}
+		run := &model.ReactRun{
+			RunID:                   runID,
+			SessionID:               sessionID,
+			UserName:                req.userName,
+			CallerKey:               req.payload.CallerKey,
+			RouteValues:             req.routeValuesJSON,
+			State:                   model.ReactRunStateRunning,
+			StepIndex:               0,
+			MaxSteps:                normalizeMaxSteps(req.payload.MaxSteps),
+			ModelKey:                req.resolvedModelKey,
+			ModelVersion:            req.resolvedModelVersion,
+			ApiKey:                  req.apiKey,
+			ControlContextJSON:      string(req.payload.ControlContext),
+			LLMContextJSON:          string(req.payload.LLMContext),
+			SkillsIndexSnapshotJSON: req.skillsIndexSnapshotJSON,
+			ToolIndexSnapshotJSON:   req.toolsIndexSnapshotJSON,
+			TodoStateJSON:           req.todoStateJSON,
+		}
+		if err := model.CreateReactRunWithDB(ctx, tx, run); err != nil {
+			return err
+		}
+		if err := persistUserInput(ctx, tx, req, runID, sessionID); err != nil {
+			return err
+		}
+		return model.UpdateReactSessionBySessionIDWithDB(ctx, tx, sessionID, map[string]any{
+			"last_run_id":  runID,
+			"last_message": trimRunLastMessage(req.payload.UserPrompt),
+		})
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return runID, sessionID, nil
+}
+
+// prepareRuntimeRequest 统一完成入参归一化、调用方校验、模型/API Key 解析和系统提示词装配。
+func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, sessionID string) (*runtimeRequest, error) {
+	payload.CallerKey = strings.TrimSpace(payload.CallerKey)
+	payload.Type = normalizeSessionType(payload.Type)
+	payload.ModelKey = strings.TrimSpace(payload.ModelKey)
+	payload.ModelVersion = strings.TrimSpace(payload.ModelVersion)
+	payload.ModelHash = strings.TrimSpace(payload.ModelHash)
+	payload.UserPrompt = strings.TrimSpace(payload.UserPrompt)
+
+	if payload.CallerKey == "" || payload.UserPrompt == "" {
+		return nil, components.ErrorParamInvalid.Sprintf("callerKey、userPrompt 不能为空")
+	}
+
+	caller, err := model.GetActiveCallerByKey(ctx, payload.CallerKey)
+	if err != nil {
+		return nil, err
+	}
+	if caller == nil {
+		return nil, components.ErrorCallerNotFound.Sprintf(payload.CallerKey)
+	}
+
+	requestSource, err := parseControlContextRequestSource(payload.ControlContext)
+	if err != nil {
+		return nil, err
+	}
+	userName, err := resolveReactUserName(ctx, requestSource, payload.ControlContext)
+	if err != nil {
+		return nil, err
+	}
+	callerRuntimeCtx, err := components.NormalizeCallerRuntimeContext(ctx, payload.CallerKey, requestSource, userName, strings.TrimSpace(sessionID), "")
+	if err != nil {
+		return nil, err
+	}
+	routeValues := payload.RouteValues
+	if routeValues == nil {
+		routeValues = []string{}
+	}
+	routeValuesBytes, _ := json.Marshal(routeValues)
+
+	var apiKey, modelKey, modelVersion string
+	if payload.ModelHash != "" {
+		userModel, err := model.GetUserModelByHash(ctx, payload.ModelHash)
+		if err != nil {
+			return nil, err
+		}
+		if userModel == nil {
+			return nil, components.ErrorUserModelNotFound.Sprintf(payload.ModelHash)
+		}
+		apiKey = userModel.ApiKey
+		modelKey = userModel.ModelKey
+		modelVersion = userModel.ModelVersion
+	} else {
+		if payload.ModelKey == "" {
+			return nil, components.ErrorParamInvalid.Sprintf("modelKey 不能为空")
+		}
+		var err error
+		apiKey, err = apikeyService.ResolveApiKey(ctx, payload.CallerKey, routeValues)
+		if err != nil {
+			return nil, err
+		}
+		if apiKey == "" {
+			return nil, components.ErrorApiKeyNotFound.Sprintf(payload.CallerKey)
+		}
+		modelKey = payload.ModelKey
+		modelVersion = llm.ResolveModelVersion(modelKey, payload.ModelVersion)
+	}
+	if strings.TrimSpace(modelVersion) == "" {
+		return nil, components.ErrorModelNotSupported.Sprintf(modelKey)
+	}
+
+	systemPrompt, err := systempromptService.ResolveSystemPrompt(ctx, payload.CallerKey, routeValues)
+	if err != nil {
+		zlog.Warnf(ctx, "[react.prepareRuntimeRequest] 解析系统提示词失败: callerKey=%s, err=%v", payload.CallerKey, err)
+	}
+
+	skills, err := model.FindSkillsByCallerAndRoutes(ctx, payload.CallerKey, route.BuildRoutePrefixes(routeValues))
+	if err != nil {
+		return nil, err
+	}
+	skillsIndexSnapshotJSON := buildSkillIndexSnapshotJSON(skills)
+
+	tools, err := toolService.FindVisibleToolsByCallerAndRoutes(ctx, payload.CallerKey, route.BuildRoutePrefixes(routeValues), userName)
+	if err != nil {
+		return nil, err
+	}
+	toolsIndexSnapshotJSON := buildToolIndexSnapshotJSON(tools)
+
+	payload.RouteValues = routeValues
+	attachments, err := prepareReactAttachments(ctx, payload.Attachments, userName)
+	if err != nil {
+		return nil, err
+	}
+	payload.Attachments = reactAttachmentRefsFromSnapshots(attachments)
+	modelUserMessage := llm.ChatMessage{Role: model.ReactMessageRoleUser, Content: buildUserMessageContent(payload.UserPrompt, payload.LLMContext, renderAttachmentManifest(attachments))}
+	return &runtimeRequest{
+		payload:                 payload,
+		inputSessionID:          strings.TrimSpace(sessionID),
+		userName:                userName,
+		apiKey:                  apiKey,
+		resolvedModelKey:        modelKey,
+		resolvedModelVersion:    modelVersion,
+		systemPrompt:            systemPrompt,
+		skillsIndexSnapshotJSON: skillsIndexSnapshotJSON,
+		toolsIndexSnapshotJSON:  toolsIndexSnapshotJSON,
+		routeValuesJSON:         string(routeValuesBytes),
+		modelUserMessage:        modelUserMessage,
+		attachments:             attachments,
+		callerRuntimeContext:    callerRuntimeCtx,
+	}, nil
+}
+
+func parseControlContextRequestSource(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return "", nil
+	}
+	var payload struct {
+		RequestSource string `json:"requestSource"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", components.ErrorParamInvalid.Sprintf("controlContext 非法: %v", err)
+	}
+	return strings.TrimSpace(payload.RequestSource), nil
+}
+
+// parseControlContextDingTalkUserName 从 controlContext.dingTalkMeta 中解析 userName。
+// 与 plan 模式 parseUserNameFromDingTalkMeta 语义一致，钉钉服务间调用（中间件放行但不 SetUserName）由此取用户名。
+func parseControlContextDingTalkUserName(raw json.RawMessage) string {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return ""
+	}
+	var payload struct {
+		DingTalkMeta struct {
+			UserName string `json:"userName"`
+		} `json:"dingTalkMeta"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.DingTalkMeta.UserName)
+}
+
+// resolveReactUserName 解析用户身份：网页端由 IPS 中间件 SetUserName，直接读 Context；
+// 仅 requestSource=datamap-knowledge-dingding 的钉钉服务间调用（中间件放行且不 SetUserName）
+// 回退到 controlContext.dingTalkMeta.userName。
+func resolveReactUserName(ctx *gin.Context, requestSource string, controlContext json.RawMessage) (string, error) {
+	u := helpers.GetUserName(ctx)
+	if u != "" && u != "unknown" && u != "system" {
+		return strings.TrimSpace(u), nil
+	}
+	if requestSource == components.RequestSourceDatamapKnowledgeDingding {
+		if u2 := parseControlContextDingTalkUserName(controlContext); u2 != "" {
+			return u2, nil
+		}
+		return "", components.ErrorParamInvalid.Sprintf("dingTalkMeta.userName 不能为空")
+	}
+	return "", components.ErrorParamInvalid.Sprintf("userName 不能为空")
+}
+
+// getOrCreateReactSession 按消息信封中的 sessionId 优先复用；sessionId 为空时始终创建新会话。
+func getOrCreateReactSession(ctx *gin.Context, tx *gorm.DB, req *runtimeRequest) (string, error) {
+	inputSessionID := strings.TrimSpace(req.inputSessionID)
+	if inputSessionID != "" {
+		// 显式 sessionId 代表客户端指定会话，优先锁定已有行；不存在时才按该 ID 创建。
+		existing, err := model.GetReactSessionBySessionIDForUpdate(ctx, tx, inputSessionID)
+		if err != nil {
+			return "", err
+		}
+		if existing != nil {
+			if err := validateReactSessionOwnership(existing, req); err != nil {
+				return "", err
+			}
+			return existing.SessionID, nil
+		}
+		return createReactSession(ctx, tx, inputSessionID, req)
+	}
+
+	return createReactSession(ctx, tx, generateSessionID(), req)
+}
+
+// validateReactSessionOwnership 校验显式 sessionId 的业务归属，避免跨用户、Caller 或路由复用上下文。
+func validateReactSessionOwnership(session *model.ReactSession, req *runtimeRequest) error {
+	if session == nil || req == nil {
+		return components.ErrorParamInvalid.Sprintf("session 不存在")
+	}
+	if session.State != model.ReactSessionStateActive ||
+		session.UserName != req.userName ||
+		session.CallerKey != req.payload.CallerKey ||
+		session.RouteValues != req.routeValuesJSON ||
+		session.SessionType != req.payload.Type {
+		return components.ErrorParamInvalid.Sprintf("sessionId 无权访问或上下文不匹配")
+	}
+	return nil
+}
+
+// createReactSession 在当前事务中创建新的 ReAct 会话，并返回最终落库的 sessionID。
+func createReactSession(ctx *gin.Context, tx *gorm.DB, sessionID string, req *runtimeRequest) (string, error) {
+	session := &model.ReactSession{
+		SessionID:   sessionID,
+		UserName:    req.userName,
+		CallerKey:   req.payload.CallerKey,
+		RouteValues: req.routeValuesJSON,
+		SessionType: req.payload.Type,
+		Title:       buildSessionTitle(req.payload.UserPrompt),
+		State:       model.ReactSessionStateActive,
+	}
+	if err := model.CreateReactSessionWithDB(ctx, tx, session); err != nil {
+		return "", err
+	}
+	return sessionID, nil
+}
+
+// persistUserInput 将用户本轮输入写入消息表，作为 run 的第一条可审计消息。
+func persistUserInput(ctx *gin.Context, tx *gorm.DB, req *runtimeRequest, runID, sessionID string) error {
+	content := map[string]any{
+		"content":        req.payload.UserPrompt,
+		"controlContext": json.RawMessage(req.payload.ControlContext),
+		"llmContext":     json.RawMessage(req.payload.LLMContext),
+		"attachments":    req.attachments,
+		"modelMessage":   req.modelUserMessage,
+	}
+	contentJSON, _ := json.Marshal(content)
+	return model.CreateReactMessageWithDB(ctx, tx, &model.ReactMessage{
+		MessageID:   req.modelUserMessageRef.MessageID,
+		RunID:       runID,
+		SessionID:   sessionID,
+		UserName:    req.userName,
+		CallerKey:   req.payload.CallerKey,
+		Seq:         1,
+		StepIndex:   0,
+		Role:        model.ReactMessageRoleUser,
+		MessageType: model.ReactMessageTypeUserInput,
+		ContentJSON: string(contentJSON),
+	})
+}
+
+// buildInitialMessages 组装当前 run 的 system/user 消息；llmContext 绑定到对应 user 消息，Skill 摘要合并到 system 前缀。
+func buildInitialMessages(req *runtimeRequest) []llm.LLMMessage {
+	var messages []llm.LLMMessage
+	if systemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON)); systemContent != "" {
+		messages = append(messages, llm.LLMMessage{Role: model.ReactMessageRoleSystem, Content: systemContent})
+	}
+	messages = append(messages, llm.LLMMessage{Role: req.modelUserMessage.Role, Content: req.modelUserMessage.Content})
+	return messages
+}
+
+func buildReactSystemContent(systemPrompt, toolSummary, skillSummary string, extraContexts ...string) string {
+	parts := make([]string, 0, 3+len(extraContexts))
+	if systemPrompt = strings.TrimSpace(systemPrompt); systemPrompt != "" {
+		parts = append(parts, systemPrompt)
+	}
+	if toolSummary = strings.TrimSpace(toolSummary); toolSummary != "" {
+		parts = append(parts, toolSummary)
+	}
+	if skillSummary = strings.TrimSpace(skillSummary); skillSummary != "" {
+		parts = append(parts, skillSummary)
+	}
+	for _, contextText := range extraContexts {
+		if contextText = strings.TrimSpace(contextText); contextText != "" {
+			parts = append(parts, contextText)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func buildUserMessageContent(prompt string, llmContext json.RawMessage, attachmentTexts ...string) string {
+	prompt = strings.TrimSpace(prompt)
+	llmContextText := renderLLMContext(llmContext)
+	attachmentText := ""
+	if len(attachmentTexts) > 0 {
+		attachmentText = attachmentTexts[0]
+	}
+	parts := make([]string, 0, 6)
+	if llmContextText == "" || llmContextText == "null" {
+		parts = append(parts, prompt)
+	} else {
+		parts = append(parts,
+			"用户输入：",
+			prompt,
+			"本轮用户补充上下文 llmContext（调用方提供，按用户输入的一部分处理）：",
+			llmContextText,
+		)
+	}
+	if attachmentText = strings.TrimSpace(attachmentText); attachmentText != "" {
+		parts = append(parts, attachmentText)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// renderLLMContext 将 JSON 字符串解包为纯文本；JSON 对象保持原始结构供模型理解。
+func renderLLMContext(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return ""
+	}
+	if raw[0] == '"' {
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			return strings.TrimSpace(text)
+		}
+	}
+	return string(raw)
+}
+
+// trimRunLastMessage 截断会话摘要字段，避免用户长输入直接写入 last_message。
+func trimRunLastMessage(content string) string {
+	content = strings.TrimSpace(content)
+	if len([]rune(content)) <= 512 {
+		return content
+	}
+	return string([]rune(content)[:512])
+}
+
+// Cancel 将指定 run 置为 cancelling，并触发运行时 context 取消；最终 cancelled 事件由 run 收敛后发送。
+func Cancel(ctx *gin.Context, runID, sessionID string) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return components.ErrorParamInvalid.Sprintf("runId 不能为空")
+	}
+	run, err := model.GetReactRunByRunID(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if run == nil {
+		return components.ErrorReactRunNotFound.Sprintf(runID)
+	}
+	if sessionID != "" && run.SessionID != sessionID {
+		return components.ErrorParamInvalid.Sprintf("sessionId 与 run 不匹配")
+	}
+	switch run.State {
+	case model.ReactRunStateFinished, model.ReactRunStateCancelled, model.ReactRunStateError, model.ReactRunStateExpired:
+		return components.ErrorParamInvalid.Sprintf("run 已结束，不能取消: state=%s", run.State)
+	}
+	cancel, ok := getActiveReactRunCancel(runID)
+	if !ok {
+		return components.ErrorParamInvalid.Sprintf("run 不在当前进程运行中，无法取消: %s", runID)
+	}
+	if err := model.UpdateReactRunByRunID(ctx, runID, map[string]any{"state": model.ReactRunStateCancelling}); err != nil {
+		return err
+	}
+	cancel(ErrReactRunCancelled)
+	return nil
+}

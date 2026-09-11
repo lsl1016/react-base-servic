@@ -1,0 +1,254 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-panel {
+  @include agent-ui-flex-column;
+  height: 100%;
+  width: 100%;
+  background: $agent-ui-bg-secondary;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+  & *{
+    box-sizing: border-box;
+  }
+
+  &-header {
+    @include agent-ui-flex-between;
+    height: $agent-ui-header-height;
+    padding: 0 $agent-ui-spacing-xl;
+    border-bottom: 1px solid $agent-ui-border-color-light;
+    background: $agent-ui-bg-primary;
+    flex-shrink: 0;
+  }
+
+  &-title {
+    @include agent-ui-flex-center;
+    gap: $agent-ui-spacing-sm;
+    min-width: 0;
+  }
+
+  &-title-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: $agent-ui-spacing-sm;
+    min-width: 0;
+  }
+
+  &-logo-mark {
+    @include agent-ui-flex-center;
+    width: 22px;
+    height: 22px;
+    border-radius: $agent-ui-radius-md;
+    background: $agent-ui-primary;
+    color: $agent-ui-text-inverse;
+    flex-shrink: 0;
+  }
+
+  &-title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: $agent-ui-font-size-base;
+    font-weight: $agent-ui-font-weight-semibold;
+    color: $agent-ui-text-primary;
+  }
+
+  &-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+    background: transparent;
+    position: relative;
+    font-size: $agent-ui-font-size-base;
+  }
+
+  &-sidebar {
+    width: 280px;
+    border-right: 1px solid $agent-ui-border-color-light;
+    background: $agent-ui-bg-primary;
+    overflow-y: auto;
+    flex-shrink: 0;
+    @include agent-ui-scrollbar;
+  }
+
+  &-chat {
+    flex: 1;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  &-footer {
+    background: transparent;
+    padding: $agent-ui-spacing-lg $agent-ui-spacing-xl $agent-ui-spacing-xl;
+    padding-top: 0px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
+  }
+
+  &-feedback {
+    flex-shrink: 0;
+    max-height: 60%;
+    padding: $agent-ui-spacing-md $agent-ui-spacing-xl;
+    background: transparent;
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+
+    &:empty {
+      display: none;
+    }
+  }
+
+  &-connection {
+    display: inline-flex;
+    align-items: center;
+    gap: $agent-ui-spacing-sm;
+    height: 24px;
+    padding: 0 $agent-ui-spacing-sm;
+    border-radius: $agent-ui-radius-full;
+    color: $agent-ui-text-tertiary;
+    background: $agent-ui-bg-secondary;
+    font-size: $agent-ui-font-size-xs;
+    white-space: nowrap;
+  }
+}
+
+.agent-ui-panel-message {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: $agent-ui-z-tooltip;
+  max-width: calc(100% - 32px);
+  padding: $agent-ui-spacing-md $agent-ui-spacing-lg;
+  transform: translateX(-50%);
+  border-radius: $agent-ui-radius-md;
+  background: var(--agent-ui-message-error-bg, #fff1f0);
+  box-shadow: $agent-ui-shadow-md;
+  color: var(--agent-ui-message-error-text, #a8071a);
+  font-size: $agent-ui-font-size-sm;
+  font-weight: $agent-ui-font-weight-medium;
+  line-height: $agent-ui-line-height-base;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.agent-ui-connection-indicator {
+  flex-shrink: 0;
+}
+
+.agent-ui-connection-indicator-connected {
+  color: $agent-ui-success;
+}
+
+.agent-ui-connection-indicator-disconnected {
+  color: $agent-ui-danger;
+}
+
+.agent-ui-sidebar-toggle {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-center;
+  width: 28px;
+  height: 28px;
+  border-radius: $agent-ui-radius-md;
+  color: $agent-ui-text-secondary;
+  @include agent-ui-hover-bg;
+  @include agent-ui-transition(background-color, color);
+
+  &:hover {
+    color: $agent-ui-primary;
+  }
+}
+
+.agent-ui-session-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: stretch;
+  padding: 0 $agent-ui-spacing-md;
+}
+
+.agent-ui-session-drawer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: min(1200px, 90%);
+  border-radius: $agent-ui-radius-lg $agent-ui-radius-lg 0 0;
+  background: $agent-ui-bg-primary;
+  box-shadow: $agent-ui-shadow-drawer;
+  overflow: hidden;
+  animation: agent-ui-session-slide-up $agent-ui-transition-slow $agent-ui-transition-ease;
+}
+
+@keyframes agent-ui-session-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+.agent-ui-panel-header-right {
+  @include agent-ui-flex-center;
+  gap: $agent-ui-spacing-xs;
+  flex-shrink: 0;
+}
+
+.agent-ui-header-icon-btn {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: $agent-ui-radius-full;
+  color: $agent-ui-text-secondary;
+  background: transparent;
+  @include agent-ui-transition(background-color, border-color, color);
+
+  &:hover,
+  &.agent-ui-header-icon-btn-active {
+    color: $agent-ui-primary;
+    background: $agent-ui-primary-light;
+    border-color: transparent ;
+  }
+}
+
+.agent-ui-header-btn {
+  @include agent-ui-button-reset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 $agent-ui-spacing-md;
+  border-radius: $agent-ui-radius-full;
+  font-size: $agent-ui-font-size-xs;
+  font-weight: $agent-ui-font-weight-medium;
+  color: $agent-ui-text-secondary;
+  @include agent-ui-transition(background-color, border-color, color);
+
+  &:hover {
+    background: $agent-ui-bg-secondary;
+
+  }
+}
+
+.agent-ui-status {
+  &-indicator {
+    font-size: $agent-ui-font-size-sm;
+  }
+
+  &-text {
+    font-weight: $agent-ui-font-weight-medium;
+  }
+
+  &-error {
+    color: $agent-ui-error;
+    margin-left: $agent-ui-spacing-md;
+  }
+}

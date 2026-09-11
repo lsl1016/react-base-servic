@@ -1,0 +1,902 @@
+package react
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	llm "react-base-service/api/llm"
+	"react-base-service/components/params"
+	"react-base-service/components/route"
+	model "react-base-service/models/llm"
+	toolService "react-base-service/service/tool"
+)
+
+const (
+	metaToolListTools      = "list_tools"
+	metaToolGetTool        = "get_tool"
+	metaToolExecuteTool    = "execute_tool"
+	metaToolListSkills     = "list_skills"
+	metaToolGetSkill       = "get_skill"
+	metaToolReadToolResult = "read_tool_result"
+	metaToolInspectData    = "inspect_data"
+	metaToolPythonExec     = "python_exec"
+	metaToolTodoWrite      = "todo_write"
+	metaToolAskQuestion    = "ask_question"
+	metaToolDisplayFiles   = "displayFiles"
+	// metaToolResolveAsyncTask 标记异步任务已完结，是 pending 提醒的唯一清除入口（TTL 过期兜底）。
+	metaToolResolveAsyncTask = "resolve_async_task"
+	// metaToolGetAsyncTask 回读异步任务完整记录，用于提醒内容被截断时取全量提交参数/响应。
+	metaToolGetAsyncTask = "get_async_task"
+	// metaToolReadAttachment 读取上传附件文本内容到上下文（理解类任务）。
+	metaToolReadAttachment = "read_attachment"
+	// metaToolInspectAttachment 探查 csv 附件的表结构（写分析代码前的准备）。
+	metaToolInspectAttachment = "inspect_attachment"
+)
+
+// isInternalMetaTool 判断工具名是否属于 Runtime 内置 Meta Tool，内置工具不走外部工具注册表。
+func isInternalMetaTool(name string) bool {
+	switch name {
+	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment:
+		return true
+	default:
+		return false
+	}
+}
+
+// internalMetaToolDefinitions 定义 Runtime 内置工具（稳定 Meta Tool 集合）。
+func internalMetaToolDefinitions() []llm.ToolDefinition {
+	definitions := []llm.ToolDefinition{
+		// list_tools 已软下线：Business Tool 轻量索引在 run 初始化阶段注入 system 前缀，完整 parameters 仍通过 get_tool 按需加载。
+		objectTool(metaToolGetTool, "按 toolId 或 name 加载一个 Business Tool，并返回其 parameters/outputSchema；加载后必须通过 execute_tool 调用，不要直接调用返回的业务工具名", map[string]interface{}{"toolId": stringSchema("工具ID，可选"), "name": stringSchema("工具名称，可选")}),
+		executeToolDefinition(),
+		// list_skills 已软下线：Skill 摘要在 run 初始化阶段注入 system 前缀，完整说明仍通过 get_skill 按需加载。
+		objectTool(metaToolGetSkill, "按 skillId 或 name 加载一个 Skill 的完整说明", map[string]interface{}{"skillId": stringSchema("Skill ID，可选"), "name": stringSchema("Skill 名称，可选")}),
+		objectTool(metaToolReadToolResult, "读取 resultRef 指向的工具大结果或 StepResultRef 指向的正式步骤结果。该工具只读取授权范围内的原始内容；理解 JSON 结构时优先使用 inspect_data。", map[string]interface{}{"resultRef": stringSchema("工具结果 resultRef，或 StepResultRef.step_result_id"), "offset": numberSchema("读取起始位置，可选"), "limit": numberSchema("单次读取长度，可选")}),
+		inspectDataToolDefinition(),
+		pythonExecToolDefinition(),
+		todoWriteToolDefinition(),
+		// 暂时下线 create_plan，保留实现代码，后续恢复时取消注释。
+		// createPlanToolDefinition(),
+		askQuestionToolDefinition(),
+		displayFilesToolDefinition(),
+		resolveAsyncTaskToolDefinition(),
+		getAsyncTaskToolDefinition(),
+		readAttachmentToolDefinition(),
+		inspectAttachmentToolDefinition(),
+	}
+	return definitions
+}
+
+func executeToolDefinition() llm.ToolDefinition {
+	return llm.ToolDefinition{
+		Name:        metaToolExecuteTool,
+		Description: "执行已通过 get_tool 加载的 Business Tool；description 用一句话说明本次工具调用目的，仅用于前端展示；input/arguments 必须符合 get_tool 返回的 parameters。",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"description": stringSchema("本次工具调用的简短描述，用于向用户说明为什么调用该内部工具或正在做什么。**必须使用名词短语，禁止以动词开头**。错误：加载xxx模块 / 查看当前可用的业务工具；正确：xxx模块 / 当前可用的业务工具。错误：获取报表数据，正确：报表数据。错误：更新图表配置，正确：图表配置更新。错误：查看可用工具列表，正确：可用工具列表。"),
+				"toolId":      stringSchema("工具ID，可选；推荐使用。"),
+				"name":        stringSchema("工具展示名，可选。"),
+				"callName":    stringSchema("get_tool 返回的 callName，可选。"),
+				"input": map[string]interface{}{
+					"type":        "object",
+					"description": "业务工具入参对象。",
+				},
+				"arguments": map[string]interface{}{
+					"type":        "object",
+					"description": "业务工具入参对象；与 input 二选一。",
+				},
+			},
+			"required": []string{"description"},
+		},
+	}
+}
+
+func pythonExecToolDefinition() llm.ToolDefinition {
+	return llm.ToolDefinition{
+		Name:        metaToolPythonExec,
+		Description: "执行 Python 代码。inputs 是可选的命名输入集合；没有外部输入时可以不传或传空对象，Python 侧会收到空输入容器。如需传入数据，inputs 的 key 是 Python 中使用的 alias，value 描述输入来源。支持六种输入来源：tool_result、raw_json、text、expr、attachment、http。type=tool_result 时，只需提供 ref=resultRef；后端会读取该前序工具结果并按 JSON 解析后放入对应 alias。type=raw_json 时，value 直接作为 JSON 值放入对应 alias。type=text 或 type=expr 时，value 作为字符串放入对应 alias。type=attachment 时，只需提供 fileId（来自 attachments 清单）；后端会根据 fileId 解析出该文件的 COS 路径，沙箱据此把文件内容读出来、并作为文本字符串（统一 UTF-8）注入到对应 alias。所以脚本里 inputs['alias'] 已经是读好的文件内容（不是文件路径），你不用也无法再去读文件：读 CSV 直接用 df = pd.read_csv(io.StringIO(inputs['alias']))，严禁把 inputs['alias'] 当路径传给 pd.read_csv/open。type=http 时，提供 url；沙箱拉取该 URL 的文本数据、同样作为内容字符串注入 alias，需要时用 io.StringIO/io.BytesIO 包装。凡是对上传文件做统计、聚合、过滤、连表、计算等数据处理，都用 attachment 输入源引用文件，不要先用 read_attachment 把大文件读进上下文。Python 脚本从 stdin 读取输入容器（import json, sys; inputs = json.loads(sys.stdin.read())），并按 alias 访问对应输入。inspect_data / inspect_attachment 不是必选前置步骤；仅当结构不明确时先探查（前序 JSON 工具结果用 inspect_data，上传附件用 inspect_attachment 预览头部）。生成的 Python 代码必须遵守 python 参数中列出的安全约束：只能使用白名单库，必须从 stdin 读取输入，最终只向 stdout 输出单个 JSON 对象，禁止文件操作、命令执行、网络访问、环境变量读取和动态执行。",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"description": stringSchema("本次 Python 执行目的，用于前端展示。"),
+				"python":      stringSchema("要执行的 Python 代码。必须使用 import json, sys; inputs = json.loads(sys.stdin.read()) 读取输入容器；stdin JSON 的顶层 key 来自 python_exec.inputs 的 alias。没有外部输入时 inputs 为空对象。最终结果只能向 stdout 输出单个 JSON 对象，使用 print(json.dumps(result, ensure_ascii=False)) 输出；调试信息只写 stderr。需要产出文件（图片、CSV、Excel、PDF 等任意类型）时，在这个 stdout JSON 对象里放一个 artifacts 数组，每个元素为 {\"type\":\"image/png\",\"name\":\"chart.png\",\"content\":\"<文件内容>\"}。content 的规则：二进制文件（png/jpg/pdf/xlsx 等）必须放 base64（或 data URI），文本文件（csv/txt/json/svg 等）可直接放原始文本；type 用完整 MIME（如 image/png、text/csv、application/pdf），name 带正确扩展名。后端会把 content 解码后上传到对象存储，base64/文件内容不会回填给你——你只会看到产物的类型/名称/大小/artifactId 描述符，所以不要依赖 artifacts 内容做后续推理，也不要把文件内容写进其它字段。需要向用户展示这些文件时，调用 displayFiles 工具，把描述符里的 artifactId 原样放入 artifactIds 参数；禁止在正文中输出文件链接或自行构造任何 uri。单份文件大小上限 10MB，超限的产物不会保存（描述符会标记 dropped 并说明原因），收到 dropped 反馈时请缩小后重新生成。用 matplotlib 生图时须先 matplotlib.use('Agg')；图中含中文时必须设置 plt.rcParams['font.sans-serif']=['WenQuanYi Zen Hei'] 和 plt.rcParams['axes.unicode_minus']=False（该中文字体已在沙箱预装，直接设置即可，禁止用 os/glob 探测字体文件），再 savefig 到 io.BytesIO 后 base64 编码放入 artifacts.content。安全约束（执行前会做静态安全扫描，违反将被拒绝执行）：只能使用白名单库 sys、json、pandas、numpy、math、statistics、datetime、matplotlib、io、base64；禁止 import os、subprocess、socket、requests、shutil 等危险库；禁止 eval、exec、compile、__import__ 等动态执行；禁止 open 及任何文件读写、删除、覆盖和目录操作；禁止 system、popen 等命令执行与子进程调用；禁止读取环境变量（os.environ、getenv）与 globals()、locals()；禁止任何网络访问。"),
+				"inputs": map[string]interface{}{
+					"type":        "object",
+					"description": "可选的命名输入集合。key 是 Python 脚本里的数据别名 alias；value 是输入来源对象。不需要外部输入时可不传或传空对象。支持六种来源类型：tool_result、raw_json、text、expr、attachment、http。type=tool_result 时只需提供 ref，后端会读取该前序工具结果并按 JSON 解析后放入对应 alias；type=raw_json 时 value 直接作为 JSON 值；type=text/expr 时 value 作为字符串；type=attachment 时只需提供 fileId，引用上传附件交给沙箱分析；type=http 时提供 url，沙箱自动拉取。",
+					"additionalProperties": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"type": map[string]interface{}{
+								"type":        "string",
+								"enum":        []string{"tool_result", "raw_json", "text", "expr", "attachment", "http"},
+								"description": "来源类型。tool_result 由后端读取 ref 指向的前序工具结果并按 JSON 解析；raw_json 直接使用 JSON 值；text/expr 直接使用字符串值；attachment 由后端根据 fileId 解析出该文件的 COS 路径，以 COS 引用交给沙箱读取；http 由沙箱自动拉取 url 指向的数据。",
+							},
+							"ref":    stringSchema("前序工具执行结果的 resultRef；仅当 type=tool_result 时必填。"),
+							"fileId": stringSchema("上传附件的 fileId（来自 attachments 清单）；仅当 type=attachment 时必填。"),
+							"url":    stringSchema("要拉取的数据 URL（http/https）；仅当 type=http 时必填。"),
+							"value": map[string]interface{}{
+								"description": "内联值；当 type=raw_json/text/expr 时必填。raw_json 直接传 JSON 值，text/expr 直接传字符串值。",
+							},
+						},
+						"required":             []string{"type"},
+						"additionalProperties": false,
+					},
+				},
+			},
+			"required":             []string{"description", "python"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+func inspectDataToolDefinition() llm.ToolDefinition {
+	return llm.ToolDefinition{
+		Name:        metaToolInspectData,
+		Description: "探测前序工具结果的数据结构。inspect_data 不是 python_exec 的必选前置步骤，只在前序工具结果被截断、压缩，或 JSON 结构、字段路径、样例不明确时再调用；如果结果未截断且结构简单，可以直接进入 python_exec。第一版仅支持 JSON，且数据只来自前序工具结果：传 source.type=tool_result、source.ref=resultRef。返回结构路径、类型、样例和 Python 读取说明；如果 python_exec 依赖多个工具结果，应分别对相关 resultRef 调用 inspect_data，再把这些原始 resultRef 通过 python_exec.inputs 的不同 alias 传入。",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"description": stringSchema("本次数据探测目的，用于前端展示。"),
+				"source": map[string]interface{}{
+					"type":        "object",
+					"description": "数据来源。第一版仅支持 tool_result，通过 ref 读取前序工具 resultRef。",
+					"properties": map[string]interface{}{
+						"type": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"tool_result"},
+							"description": "来源类型：固定为 tool_result。",
+						},
+						"ref": stringSchema("前序工具结果引用 resultRef。"),
+					},
+					"required":             []string{"type", "ref"},
+					"additionalProperties": false,
+				},
+				"formatHint":  stringSchema("数据格式提示。第一版仅支持 json，可不传。"),
+				"sampleLimit": numberSchema("每个数组节点最多保留的样例数量，默认 5。"),
+			},
+			"required":             []string{"description", "source"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+func todoWriteToolDefinition() llm.ToolDefinition {
+	return llm.ToolDefinition{
+		Name:        metaToolTodoWrite,
+		Description: "更新当前 Agent 线程的 todo 状态。用户任务需要拆分为可执行、可验证的子任务后写入 todo；任务推进、完成、跳过或无法继续时必须及时更新状态。只要当前存在 pending 或 in_progress todo，在输出最终答复前必须先调用本工具，将已完成项标记为 completed，将未完成、跳过或不再需要的项标记为 cancelled。merge=false 用于创建或覆盖当前任务列表，merge=true 用于按 id 增量更新当前任务列表。任何时刻最多只能有一个 in_progress todo。每当开始一个新的 todo 时，必须先在 assistant 正文中使用 Markdown 一级标题格式 `# <中文序号>、<完整 content>` 单独输出当前步骤标题；中文序号按照当前完整 todo 列表顺序生成，从“一”开始，依次使用“一、二、三……十、十一……”，例如 `# 一、检查现有实现`。中文序号只用于标题展示，不得写入或修改 todo 的 content；标题前后不得添加其他正文。并在同一响应中调用本工具将该 todo 更新为 in_progress；该响应不得同时调用其他实施工具，待状态更新成功后的下一轮再执行该步骤。每个 todo 只在首次进入 in_progress 时输出一次步骤标题，同一步骤后续调用工具时不要重复输出。",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"description": stringSchema("本次工具调用的简短描述，用于向用户说明为什么调用该内部工具或正在做什么。"),
+				"merge": map[string]interface{}{
+					"type":        "boolean",
+					"description": "是否增量合并。true 时按 id 合并并保留未传字段；false 时整体覆盖当前 todo 列表。",
+				},
+				"todos": map[string]interface{}{
+					"type":        "array",
+					"description": "todo 项数组。新增或整体替换时需要 content；增量更新已有项时可只传 id 和 status。",
+					"minItems":    1,
+					"items": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"id":      stringSchema("稳定 todo id，例如 inspect、implement、verify。"),
+							"content": stringSchema("todo 展示内容，应描述一个具体、可执行、可验证的子任务。"),
+							"status": map[string]interface{}{
+								"type":        "string",
+								"enum":        []string{reactTodoStatusPending, reactTodoStatusInProgress, reactTodoStatusCompleted, reactTodoStatusCancelled},
+								"description": "todo 状态。",
+							},
+						},
+						"required":             []string{"id"},
+						"additionalProperties": false,
+					},
+				},
+			},
+			"required":             []string{"description", "merge", "todos"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+// objectTool 快速构造 object 参数类型的工具定义，供内置工具声明复用。
+func objectTool(name, description string, properties map[string]interface{}) llm.ToolDefinition {
+	mergedProperties := map[string]interface{}{
+		"description": stringSchema("本次工具调用的简短描述，用于向用户说明为什么调用该内部工具或正在做什么。"),
+	}
+	for key, value := range properties {
+		mergedProperties[key] = value
+	}
+	return llm.ToolDefinition{
+		Name:        name,
+		Description: description,
+		Parameters: map[string]interface{}{
+			"type":       "object",
+			"properties": mergedProperties,
+			"required":   []string{"description"},
+		},
+	}
+}
+
+// stringSchema 构造字符串字段 schema，保持内置工具参数声明写法简洁。
+func stringSchema(description string) map[string]interface{} {
+	return map[string]interface{}{"type": "string", "description": description}
+}
+
+// numberSchema 构造数字字段 schema，用于 offset、limit 等分页参数声明。
+func numberSchema(description string) map[string]interface{} {
+	return map[string]interface{}{"type": "number", "description": description}
+}
+
+type executeToolInput struct {
+	Description string          `json:"description"`
+	ToolID      string          `json:"toolId"`
+	Name        string          `json:"name"`
+	CallName    string          `json:"callName"`
+	Input       json.RawMessage `json:"input"`
+	Arguments   json.RawMessage `json:"arguments"`
+}
+
+type toolDescriptionInput struct {
+	Description string `json:"description"`
+}
+
+func extractToolDescription(input json.RawMessage) string {
+	var req toolDescriptionInput
+	_ = json.Unmarshal(input, &req)
+	return strings.TrimSpace(req.Description)
+}
+
+func stripToolDescriptionInput(input json.RawMessage) json.RawMessage {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return input
+	}
+	delete(raw, "description")
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return input
+	}
+	return data
+}
+
+// executeInternalTool 执行内置 Meta Tool，并复用普通工具结果的摘要、持久化和事件协议。
+func (s *reactEngineState) executeInternalTool(call llm.ToolCall, step int) (llm.ToolResultContent, error) {
+	if call.Name == metaToolExecuteTool {
+		return s.executeLoadedBusinessTool(call, step)
+	}
+	if call.Name == metaToolAskQuestion {
+		return s.executeAskQuestion(call, step)
+	}
+	// displayFiles 需在发射 tool_use_start 前完成解析并替换 input（前端只消费 start 里的 input），走专属路径。
+	if call.Name == metaToolDisplayFiles {
+		return s.executeDisplayFilesTool(call, step)
+	}
+	description := extractToolDescription(call.Input)
+	toolInput := stripToolDescriptionInput(call.Input)
+	_ = s.emitter.EmitStep(step, EventToolUseStart, params.ReactToolUseStartPayload{ToolUseID: call.ID, ToolName: call.Name, ToolInput: toolInput, Description: description, ExecutedBy: executedByInternal, Status: toolExecutionStatusRunning})
+	start := time.Now()
+	call.Input = toolInput
+	content, meta, isError, err := s.executeInternalToolContent(call, step)
+	if err != nil {
+		if _, _, interrupted := classifyToolInterruption(s.runCtx, err); interrupted {
+			result := s.closeInterruptedToolUse(call, step, executedByInternal, start, err)
+			return result, err
+		}
+		content = err.Error()
+		isError = true
+		meta = nil
+	}
+	normalized := normalizeToolResult(call.ID, content, isError, executedByInternal)
+	if normalized.ResultRef != "" {
+		if err := storeResultRef(s.ctx, s.sessionID, s.runID, call.ID, normalized.ResultRef, content); err != nil {
+			return llm.ToolResultContent{}, err
+		}
+	}
+	_ = s.emitter.EmitStep(step, EventToolUseEnd, params.ReactToolUseEndPayload{ToolUseID: call.ID, Content: normalized.Content, ResultRef: normalized.ResultRef, Truncated: normalized.Truncated, OmittedChars: normalized.OmittedChars, IsError: normalized.IsError, ExecutedBy: executedByInternal, Status: normalized.Status, DurationMs: time.Since(start).Milliseconds(), Meta: meta})
+	return llm.ToolResultContent{ToolUseID: call.ID, Content: normalized.LLMContent(), IsError: normalized.IsError, Meta: meta}, nil
+}
+
+// executeInternalToolContent 按工具名分发到具体 Meta Tool 处理函数。
+// 第二个返回值 meta 是工具产物的 UI 旁路（python_exec / displayFiles 的产物 uri），仅前端展示与回放，不进模型上下文；
+// 其余工具无产物，统一用 noToolMeta 包成 meta=nil。
+func (s *reactEngineState) executeInternalToolContent(call llm.ToolCall, step int) (string, json.RawMessage, bool, error) {
+	switch call.Name {
+	case metaToolGetTool:
+		return noToolMeta(s.getTool(call.Input))
+	case metaToolListSkills:
+		return noToolMeta(s.listSkills())
+	case metaToolGetSkill:
+		return noToolMeta(s.getSkill(call.Input))
+	case metaToolReadToolResult:
+		return noToolMeta(s.readToolResult(call.Input))
+	case metaToolInspectData:
+		return noToolMeta(s.inspectData(call.Input))
+	case metaToolPythonExec:
+		return s.executePythonExec(call.ID, call.Input)
+	case metaToolTodoWrite:
+		return noToolMeta(s.updateTodos(call, step))
+	// 暂时下线 create_plan，保留执行分发代码，后续恢复时取消注释。
+	// case metaToolCreatePlan:
+	// 	return noToolMeta(executeCreatePlan(s.runID, call.ID, call.Input))
+	case metaToolResolveAsyncTask:
+		return noToolMeta(s.resolveAsyncTask(call.Input))
+	case metaToolGetAsyncTask:
+		return noToolMeta(s.getAsyncTask(call.Input))
+	case metaToolReadAttachment:
+		return noToolMeta(s.readAttachment(call.Input))
+	case metaToolInspectAttachment:
+		return noToolMeta(s.inspectAttachment(call.Input))
+	default:
+		return "", nil, true, fmt.Errorf("unknown internal meta tool: %s", call.Name)
+	}
+}
+
+// noToolMeta 把无产物工具的 (content, isError, err) 适配为带 meta 的四元返回，meta 恒为 nil。
+func noToolMeta(content string, isError bool, err error) (string, json.RawMessage, bool, error) {
+	return content, nil, isError, err
+}
+
+type reactToolIndexItem struct {
+	ToolID      string `json:"toolId"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// buildToolIndexSnapshotJSON 构建当前 run 可用 Business Tool 的轻量索引快照，在 run 初始化阶段注入 system 前缀，替代 list_tools 工具。
+func buildToolIndexSnapshotJSON(tools []model.Tool) string {
+	items := make([]reactToolIndexItem, 0, len(tools))
+	for _, tool := range tools {
+		items = append(items, reactToolIndexItem{
+			ToolID:      tool.ToolID,
+			Name:        tool.Name,
+			Description: tool.Description,
+		})
+	}
+	data, _ := json.Marshal(items)
+	return string(data)
+}
+
+// renderToolIndexSummary 把工具索引快照渲染成可读摘要，注入 system 前缀；完整 parameters 仍通过 get_tool 按需加载。
+func renderToolIndexSummary(snapshotJSON string) string {
+	snapshotJSON = strings.TrimSpace(snapshotJSON)
+	if snapshotJSON == "" || snapshotJSON == "null" || snapshotJSON == "[]" {
+		return ""
+	}
+	var items []reactToolIndexItem
+	if err := json.Unmarshal([]byte(snapshotJSON), &items); err != nil || len(items) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 当前 run 可用 Business Tool 摘要索引\n")
+	sb.WriteString("以下摘要仅用于判断需要哪个工具；确认要使用某个工具后，必须先调用 get_tool 加载其 parameters，再通过 execute_tool 执行，不要直接调用 callName。\n\n")
+	for _, item := range items {
+		sb.WriteString(fmt.Sprintf("- toolId: %s\n  name: %s\n  description: %s\n", item.ToolID, item.Name, item.Description))
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+// getTool 加载一个 Business Tool，并把 parameters/outputSchema 作为消息上下文返回给模型。
+func (s *reactEngineState) getTool(input json.RawMessage) (string, bool, error) {
+	var req struct {
+		ToolID string `json:"toolId"`
+		Name   string `json:"name"`
+	}
+	_ = json.Unmarshal(input, &req)
+	tools, err := toolService.FindVisibleToolsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues), s.req.userName)
+	if err != nil {
+		return "", true, err
+	}
+	for _, tool := range tools {
+		if (req.ToolID != "" && tool.ToolID == req.ToolID) || (req.Name != "" && tool.Name == req.Name) {
+			return s.activateBusinessTool(tool, businessToolDefinition(tool))
+		}
+	}
+	return "", true, fmt.Errorf("tool not found")
+}
+
+func (s *reactEngineState) activateBusinessTool(tool model.Tool, definition llm.ToolDefinition) (string, bool, error) {
+	callName := businessToolCallName(tool)
+	s.activeTools[callName] = tool
+	if err := s.persistActiveTools(); err != nil {
+		return "", true, err
+	}
+	var outputSchema map[string]interface{}
+	if cfg, err := toolService.ParseToolConfig(tool.Config); err == nil {
+		outputSchema = cfg.OutputSchema
+	}
+	data, _ := json.Marshal(map[string]interface{}{
+		"toolId":       tool.ToolID,
+		"name":         tool.Name,
+		"callName":     callName,
+		"description":  effectiveToolDescription(tool),
+		"toolType":     tool.ToolType,
+		"parameters":   definition.Parameters,
+		"outputSchema": outputSchema,
+		"usage":        "调用该业务工具时，请调用固定工具 execute_tool，并在 execute_tool 顶层传入 description 与 toolId，在 input 中传入符合 parameters 的业务参数；工具执行结果按 outputSchema 理解；不要直接调用 callName。",
+		"executeToolExample": map[string]interface{}{
+			"description": "用一句话说明本次工具调用目的。",
+			"toolId":      tool.ToolID,
+			"input":       map[string]interface{}{},
+		},
+	})
+	return string(data), false, nil
+}
+
+func (s *reactEngineState) executeLoadedBusinessTool(call llm.ToolCall, step int) (llm.ToolResultContent, error) {
+	var req executeToolInput
+	if err := json.Unmarshal(call.Input, &req); err != nil {
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: "execute_tool input must be a valid JSON object", IsError: true}, nil
+	}
+
+	tool, ok := s.findLoadedBusinessTool(req.ToolID, req.Name, req.CallName)
+	if ok && !businessToolIdentifiersMatch(tool, req.ToolID, req.Name, req.CallName) {
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: "toolId/name/callName must identify the same loaded business tool", IsError: true}, nil
+	}
+	if !ok {
+		// 未命中时现查最新工具，定义与上次加载一致则自动激活，避免让模型多跑一轮 get_tool（自愈）。
+		reloaded, reloadedOK, failReason := s.reloadBusinessToolIfUnchanged(req.ToolID, req.Name, req.CallName)
+		if !reloadedOK {
+			return llm.ToolResultContent{ToolUseID: call.ID, Content: failReason, IsError: true}, nil
+		}
+		tool = reloaded
+	}
+
+	toolInput := req.Input
+	if len(toolInput) == 0 {
+		toolInput = req.Arguments
+	}
+	if len(toolInput) == 0 {
+		toolInput = flattenedExecuteToolInput(call.Input)
+	}
+	if len(toolInput) == 0 {
+		toolInput = json.RawMessage(`{}`)
+	}
+	normalizedInput, ok := normalizeExecuteToolInput(toolInput)
+	if !ok {
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: "execute_tool input/arguments must be valid JSON", IsError: true}, nil
+	}
+	toolInput = normalizedInput
+	var inputValue any
+	if err := json.Unmarshal(toolInput, &inputValue); err != nil {
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: "execute_tool input must be valid JSON", IsError: true}, nil
+	}
+	cfg, err := toolService.ParseToolConfig(tool.Config)
+	if err != nil {
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: err.Error(), IsError: true}, nil
+	}
+	if len(cfg.InputSchema) > 0 {
+		if err := ValidateJSONSchemaValue(JSONSchema(cfg.InputSchema), inputValue); err != nil {
+			return llm.ToolResultContent{ToolUseID: call.ID, Content: "execute_tool input schema invalid: " + err.Error(), IsError: true}, nil
+		}
+	}
+	latestTool, err := s.revalidateBusinessToolForExecution(tool)
+	if err != nil {
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: err.Error(), IsError: true}, nil
+	}
+	tool = latestTool
+
+	businessCall := llm.ToolCall{
+		ID:    call.ID,
+		Name:  businessToolCallName(tool),
+		Input: toolInput,
+	}
+	if strings.EqualFold(tool.ToolType, "client") {
+		return s.executeClientTool(businessCall, tool, step, strings.TrimSpace(req.Description))
+	}
+	return s.executeServerTool(businessCall, tool, step, strings.TrimSpace(req.Description))
+}
+
+func normalizeExecuteToolInput(input json.RawMessage) (json.RawMessage, bool) {
+	trimmed := strings.TrimSpace(string(input))
+	if trimmed == "" || trimmed == "null" {
+		return json.RawMessage(`{}`), true
+	}
+	if strings.HasPrefix(trimmed, `"`) {
+		var text string
+		if err := json.Unmarshal(input, &text); err != nil {
+			return nil, false
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return json.RawMessage(`{}`), true
+		}
+		data := []byte(text)
+		if !json.Valid(data) {
+			return nil, false
+		}
+		return json.RawMessage(data), true
+	}
+	if !json.Valid(input) {
+		return nil, false
+	}
+	return input, true
+}
+
+func flattenedExecuteToolInput(input json.RawMessage) json.RawMessage {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return nil
+	}
+	delete(raw, "description")
+	delete(raw, "toolId")
+	delete(raw, "name")
+	delete(raw, "callName")
+	delete(raw, "input")
+	delete(raw, "arguments")
+	if len(raw) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func businessToolIdentifiersMatch(tool model.Tool, toolID, name, callName string) bool {
+	if value := strings.TrimSpace(toolID); value != "" && value != tool.ToolID {
+		return false
+	}
+	if value := strings.TrimSpace(name); value != "" && value != tool.Name {
+		return false
+	}
+	if value := strings.TrimSpace(callName); value != "" && value != businessToolCallName(tool) {
+		return false
+	}
+	return true
+}
+
+func (s *reactEngineState) revalidateBusinessToolForExecution(tool model.Tool) (model.Tool, error) {
+	visible, err := toolService.FindVisibleToolsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues), s.req.userName)
+	if err != nil {
+		return model.Tool{}, err
+	}
+	for _, latest := range visible {
+		if latest.ToolID == tool.ToolID && latest.Status == 1 {
+			if toolDefinitionFingerprint(businessToolDefinition(latest)) != toolDefinitionFingerprint(businessToolDefinition(tool)) {
+				return model.Tool{}, fmt.Errorf("tool definition changed after get_tool; call get_tool again before execution")
+			}
+			return latest, nil
+		}
+	}
+	return model.Tool{}, fmt.Errorf("tool is disabled or no longer visible")
+}
+
+func (s *reactEngineState) findLoadedBusinessTool(toolID, name, callName string) (model.Tool, bool) {
+	toolID = strings.TrimSpace(toolID)
+	name = strings.TrimSpace(name)
+	callName = strings.TrimSpace(callName)
+	if callName != "" {
+		if tool, ok := s.activeTools[callName]; ok {
+			return tool, true
+		}
+	}
+	for loadedCallName, tool := range s.activeTools {
+		if toolID != "" && tool.ToolID == toolID {
+			return tool, true
+		}
+		if name != "" && tool.Name == name {
+			return tool, true
+		}
+		if callName != "" && loadedCallName == callName {
+			return tool, true
+		}
+	}
+	return model.Tool{}, false
+}
+
+// businessToolDefinition 将业务工具配置转换为模型可识别的 tool definition。
+func businessToolDefinition(tool model.Tool) llm.ToolDefinition {
+	parameters := map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
+	if cfg, err := toolService.ParseToolConfig(tool.Config); err == nil && len(cfg.InputSchema) > 0 {
+		parameters = cfg.InputSchema
+	}
+	return llm.ToolDefinition{Name: businessToolCallName(tool), Description: businessToolDescription(tool), Parameters: parameters}
+}
+
+func businessToolCallName(tool model.Tool) string {
+	if isValidToolFunctionName(tool.ToolID) {
+		return strings.TrimSpace(tool.ToolID)
+	}
+	if sanitized := sanitizeToolFunctionName(tool.ToolID); sanitized != "" {
+		return sanitized
+	}
+	if sanitized := sanitizeToolFunctionName(tool.Name); sanitized != "" {
+		return sanitized
+	}
+	return "tool"
+}
+
+// effectiveToolDescription 优先使用 config.description，为空时回退到 tool.Description。
+func effectiveToolDescription(tool model.Tool) string {
+	if cfg, err := toolService.ParseToolConfig(tool.Config); err == nil {
+		if desc := strings.TrimSpace(cfg.Description); desc != "" {
+			return desc
+		}
+	}
+	return tool.Description
+}
+
+func businessToolDescription(tool model.Tool) string {
+	name := strings.TrimSpace(tool.Name)
+	description := strings.TrimSpace(effectiveToolDescription(tool))
+	if name == "" {
+		return description
+	}
+	if description == "" {
+		return "工具展示名：" + name
+	}
+	return description + "\n\n工具展示名：" + name
+}
+
+func isValidToolFunctionName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func sanitizeToolFunctionName(name string) string {
+	var builder strings.Builder
+	for _, r := range strings.TrimSpace(name) {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+// toolDefinitionFingerprint 计算工具 definition 的规范化指纹：marshal→unmarshal→marshal 消除数值类型与 map 序列化差异，
+// 保证"持久化快照反序列化后"与"从最新配置现算"的同一 definition 指纹一致。
+func toolDefinitionFingerprint(def llm.ToolDefinition) string {
+	data, err := json.Marshal(def)
+	if err != nil {
+		return ""
+	}
+	var normalized interface{}
+	if err := json.Unmarshal(data, &normalized); err != nil {
+		return ""
+	}
+	out, err := json.Marshal(normalized)
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// restoreActiveToolsFromPreviousRun 恢复上一个 run 已加载的 Business Tool：按 ID 重新查库取最新配置，
+// 仅当当前 definition 与上次持久化快照一致时才恢复；定义已变化的工具不恢复，强制模型重新 get_tool 拿新 schema。
+func (s *reactEngineState) restoreActiveToolsFromPreviousRun() error {
+	var prevIDs []string
+	if raw := strings.TrimSpace(s.req.prevActiveToolIDsJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &prevIDs)
+	}
+	var prevDefs []llm.ToolDefinition
+	if raw := strings.TrimSpace(s.req.prevActiveToolDefsJSON); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &prevDefs)
+	}
+	for _, def := range prevDefs {
+		if fp := toolDefinitionFingerprint(def); fp != "" {
+			s.prevToolDefFingerprint[def.Name] = fp
+		}
+	}
+	if len(prevIDs) == 0 {
+		return nil
+	}
+
+	tools, err := toolService.FindVisibleToolsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues), s.req.userName)
+	if err != nil {
+		return err
+	}
+	toolByID := make(map[string]model.Tool, len(tools))
+	for _, tool := range tools {
+		toolByID[tool.ToolID] = tool
+	}
+
+	restored := 0
+	for _, toolID := range prevIDs {
+		tool, ok := toolByID[toolID]
+		if !ok {
+			// 工具已下线或当前 caller/route 不再可见，不恢复。
+			continue
+		}
+		callName := businessToolCallName(tool)
+		prevFP, hadPrev := s.prevToolDefFingerprint[callName]
+		if !hadPrev || prevFP != toolDefinitionFingerprint(businessToolDefinition(tool)) {
+			// 定义已变化：历史上下文里的 parameters 已过期，保持未激活，让模型重新 get_tool。
+			continue
+		}
+		s.activeTools[callName] = tool
+		restored++
+	}
+	if restored == 0 {
+		return nil
+	}
+	return s.persistActiveTools()
+}
+
+// reloadBusinessToolIfUnchanged 是 execute_tool 未命中时的自愈：现查最新工具，仅当定义与上一个 run 加载时一致才自动激活。
+// 返回值第二项表示是否成功激活；未激活时第三项给出面向模型的失败原因。
+func (s *reactEngineState) reloadBusinessToolIfUnchanged(toolID, name, callName string) (model.Tool, bool, string) {
+	tools, err := toolService.FindVisibleToolsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues), s.req.userName)
+	if err != nil {
+		return model.Tool{}, false, "business tool is not loaded, call get_tool first"
+	}
+	toolID = strings.TrimSpace(toolID)
+	name = strings.TrimSpace(name)
+	callName = strings.TrimSpace(callName)
+	for _, tool := range tools {
+		toolCallName := businessToolCallName(tool)
+		if (toolID != "" && tool.ToolID == toolID) || (name != "" && tool.Name == name) || (callName != "" && toolCallName == callName) {
+			prevFP, hadPrev := s.prevToolDefFingerprint[toolCallName]
+			if !hadPrev {
+				// 本会话此前没加载过该工具，模型上下文里没有它的 schema，仍要求先 get_tool。
+				return model.Tool{}, false, "business tool is not loaded, call get_tool first"
+			}
+			if prevFP != toolDefinitionFingerprint(businessToolDefinition(tool)) {
+				return model.Tool{}, false, fmt.Sprintf("tool %s definition has changed since it was last loaded, call get_tool to refresh its parameters before execute_tool", tool.Name)
+			}
+			s.activeTools[toolCallName] = tool
+			if err := s.persistActiveTools(); err != nil {
+				return model.Tool{}, false, "business tool is not loaded, call get_tool first"
+			}
+			return tool, true, ""
+		}
+	}
+	return model.Tool{}, false, "business tool is not loaded, call get_tool first"
+}
+
+// persistActiveTools 持久化当前 run 已激活工具，便于后续排查模型实际可调用范围。
+func (s *reactEngineState) persistActiveTools() error {
+	ids := make([]string, 0, len(s.activeTools))
+	defs := make([]llm.ToolDefinition, 0, len(s.activeTools))
+	for _, name := range sortedActiveToolNames(s.activeTools) {
+		tool := s.activeTools[name]
+		ids = append(ids, tool.ToolID)
+		defs = append(defs, businessToolDefinition(tool))
+	}
+	idsJSON, _ := json.Marshal(ids)
+	defsJSON, _ := json.Marshal(defs)
+	return model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"active_tool_ids": string(idsJSON), "active_tool_defs_json": string(defsJSON)})
+}
+
+type reactSkillIndexItem struct {
+	SkillID            string `json:"skillId"`
+	Name               string `json:"name"`
+	Description        string `json:"description"`
+	TriggerCondition   string `json:"triggerCondition"`
+	ForbiddenCondition string `json:"forbiddenCondition,omitempty"`
+	IsDefault          int    `json:"isDefault"`
+	RouteValues        string `json:"routeValues"`
+}
+
+func buildSkillIndexSnapshotJSON(skills []model.Skill) string {
+	items := make([]reactSkillIndexItem, 0, len(skills))
+	for _, skill := range skills {
+		items = append(items, reactSkillIndexItem{
+			SkillID:            skill.SkillID,
+			Name:               skill.Name,
+			Description:        skill.Description,
+			TriggerCondition:   skill.TriggerCondition,
+			ForbiddenCondition: skill.ForbiddenCondition,
+			IsDefault:          skill.IsDefault,
+			RouteValues:        skill.RouteValues,
+		})
+	}
+	data, _ := json.Marshal(items)
+	return string(data)
+}
+
+func renderSkillIndexSummary(snapshotJSON string) string {
+	snapshotJSON = strings.TrimSpace(snapshotJSON)
+	if snapshotJSON == "" || snapshotJSON == "null" || snapshotJSON == "[]" {
+		return ""
+	}
+	var items []reactSkillIndexItem
+	if err := json.Unmarshal([]byte(snapshotJSON), &items); err != nil || len(items) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## 当前 run 可用 Skill 摘要索引\n")
+	sb.WriteString("以下摘要仅用于判断是否需要加载 Skill；如果某个 Skill 适合用户任务，必须调用 get_skill 获取完整说明后再执行，不要仅凭摘要执行。\n\n")
+	for _, item := range items {
+		tag := ""
+		if item.IsDefault == 1 {
+			tag = " [兜底]"
+		}
+		sb.WriteString(fmt.Sprintf("- skillId: %s\n  name: %s%s\n  description: %s\n  triggerCondition: %s\n", item.SkillID, item.Name, tag, item.Description, item.TriggerCondition))
+		if strings.TrimSpace(item.ForbiddenCondition) != "" {
+			sb.WriteString(fmt.Sprintf("  forbiddenCondition: %s\n", item.ForbiddenCondition))
+		}
+		sb.WriteString("\n")
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+// listSkills 返回轻量 Skill 索引，作为软下线期间的兼容入口；模型默认不再看到该工具。
+func (s *reactEngineState) listSkills() (string, bool, error) {
+	skills, err := model.FindSkillsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues))
+	if err != nil {
+		return "", true, err
+	}
+	data := buildSkillIndexSnapshotJSON(skills)
+	_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"skills_index_snapshot_json": data})
+	return data, false, nil
+}
+
+// getSkill 按需加载 Skill 完整定义，并记录当前 run 已加载过的 Skill。
+func (s *reactEngineState) getSkill(input json.RawMessage) (string, bool, error) {
+	var req struct {
+		SkillID string `json:"skillId"`
+		Name    string `json:"name"`
+	}
+	_ = json.Unmarshal(input, &req)
+	skills, err := model.FindSkillsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues))
+	if err != nil {
+		return "", true, err
+	}
+	for _, skill := range skills {
+		if (req.SkillID != "" && skill.SkillID == req.SkillID) || (req.Name != "" && skill.Name == req.Name) {
+			s.loadedSkillID[skill.SkillID] = true
+			_ = s.persistLoadedSkills()
+			data, _ := json.Marshal(skill)
+			return string(data), false, nil
+		}
+	}
+	return "", true, fmt.Errorf("skill not found")
+}
+
+// persistLoadedSkills 持久化当前 run 已加载 Skill 列表，避免只在内存中保留模型上下文扩展记录。
+func (s *reactEngineState) persistLoadedSkills() error {
+	ids := make([]string, 0, len(s.loadedSkillID))
+	for id := range s.loadedSkillID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	idsJSON, _ := json.Marshal(ids)
+	return model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"loaded_skill_ids": string(idsJSON)})
+}
+
+// readToolResult 读取 resultRef 的局部分片，避免一次把完整大结果重新塞入模型上下文。
+func (s *reactEngineState) readToolResult(input json.RawMessage) (string, bool, error) {
+	var req struct {
+		ResultRef string `json:"resultRef"`
+		Offset    int    `json:"offset"`
+		Limit     int    `json:"limit"`
+	}
+	_ = json.Unmarshal(input, &req)
+	content, ok, err := readResultRef(s.ctx, s.sessionID, s.runID, req.ResultRef)
+	if err != nil {
+		return "", true, err
+	}
+	if !ok {
+		return "", true, fmt.Errorf("resultRef not found or expired")
+	}
+	part, hasMore, nextOffset := sliceResultContent(content, req.Offset, req.Limit)
+	payload := map[string]interface{}{
+		"resultRef":  strings.TrimSpace(req.ResultRef),
+		"offset":     req.Offset,
+		"limit":      req.Limit,
+		"content":    part,
+		"hasMore":    hasMore,
+		"nextOffset": nextOffset,
+	}
+	data, _ := json.Marshal(payload)
+	return string(data), false, nil
+}

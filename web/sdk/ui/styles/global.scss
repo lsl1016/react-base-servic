@@ -1,0 +1,295 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+@use 'theme';
+
+// 引入所有组件样式
+@use 'components';
+@use 'message';
+@use 'scroll';
+@use 'input';
+@use 'input-attachments';
+@use 'thought';
+@use 'auto-scroll-panel';
+@use 'work';
+@use 'content';
+@use 'tool';
+@use 'ask-question';
+@use 'plan-runtime';
+@use 'usage';
+@use 'session';
+@use 'async-task-results';
+@use 'code-block';
+@use 'client-tool-editor';
+@use 'display-files';
+
+// Agent UI 容器基础样式
+.agent-ui {
+  width: 100%;
+  height: 100%;
+  font-family: $agent-ui-font-family;
+  font-size: $agent-ui-font-size-base;
+  line-height: $agent-ui-line-height-base;
+  color: $agent-ui-text-primary;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// 全局动画
+@keyframes agent-ui-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes agent-ui-slide-down {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}
+
+@keyframes agent-ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes agent-ui-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+// Markdown 样式
+.agent-ui-markdown {
+  line-height: $agent-ui-line-height-loose;
+  word-wrap: break-word;
+
+  color: $agent-ui-text-primary;
+
+  .next {
+    background: $agent-ui-bg-primary;
+    padding: $agent-ui-spacing-md $agent-ui-spacing-xl;
+    border-radius: $agent-ui-radius-lg;
+    border: 1px solid $agent-ui-border-color;
+    overflow-x: auto;
+    line-height: $agent-ui-line-height-base;
+    color: $agent-ui-text-secondary;
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin-top: $agent-ui-spacing-md;
+    margin-bottom: $agent-ui-spacing-md;
+    font-weight: $agent-ui-font-weight-medium;
+    line-height: $agent-ui-line-height-tight;
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  h1 {
+    font-size: $agent-ui-font-size-xl;
+  }
+
+  h2 {
+    font-size: $agent-ui-font-size-lg;
+  }
+
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-size: $agent-ui-font-size-base;
+  }
+
+  p {
+    margin-bottom: $agent-ui-spacing-xs;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  ul,
+  ol {
+    margin-bottom: $agent-ui-spacing-md;
+    padding-left: $agent-ui-spacing-xl;
+  }
+
+  ul {
+    list-style: disc;
+  }
+
+  ol {
+    list-style: decimal;
+  }
+
+  li {
+    margin-bottom: $agent-ui-spacing-xs;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  code {
+    // padding: 2px 6px;
+    // background: $agent-ui-primary-light;
+    // border-radius: $agent-ui-radius-sm;
+    color: $agent-ui-primary;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-weight: $agent-ui-font-weight-medium;
+  }
+
+  pre,
+  blockquote {
+    margin: 0;
+    margin-bottom: $agent-ui-spacing-md;
+    padding: $agent-ui-spacing-md $agent-ui-spacing-xl;
+    background: $agent-ui-bg-primary;
+    border-radius: $agent-ui-radius-lg;
+    border: 1px solid $agent-ui-border-color;
+    overflow-x: auto;
+    line-height: $agent-ui-line-height-base;
+    color: $agent-ui-text-secondary;
+    cursor: pointer;
+    @include agent-ui-scrollbar;
+
+    code {
+      padding: 0;
+      background: none;
+      color: inherit;
+      line-height: $agent-ui-line-height-base;
+    }
+    p:first-child {
+      margin-top: 0;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  table {
+    width: 100%;
+    margin-bottom: $agent-ui-spacing-md;
+    box-sizing: border-box;
+    border: 1px solid $agent-ui-border-color;
+    border-radius: $agent-ui-radius-lg;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: $agent-ui-bg-primary;
+    color: $agent-ui-text-primary;
+    font-size: $agent-ui-font-size-base;
+    line-height: 20px;
+    overflow: hidden;
+  }
+   
+
+  th,
+  td {
+    padding: $agent-ui-spacing-xs $agent-ui-spacing-md;
+    border: none;
+    border-right: 1px solid $agent-ui-border-color-light;
+    border-bottom: 1px solid $agent-ui-border-color-light;
+    text-align: left;
+    vertical-align: top;
+    word-break: break-word;
+  }
+     th {
+       padding: 6px $agent-ui-spacing-md;
+     }
+
+  th:last-child,
+  td:last-child {
+    border-right: none;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  th {
+    background: $agent-ui-bg-tertiary;
+    color: $agent-ui-text-primary;
+    font-weight: $agent-ui-font-weight-semibold;
+  }
+
+  hr {
+    display: none;
+    margin: $agent-ui-spacing-xl 0;
+    border: none;
+    border-top: 1px solid $agent-ui-border-color-light;
+  }
+
+  a {
+    color: $agent-ui-primary;
+    text-decoration: none;
+    @include agent-ui-transition(color);
+
+    &:hover {
+      color: $agent-ui-primary-hover;
+      text-decoration: underline;
+    }
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+    border-radius: $agent-ui-radius-md;
+  }
+
+  strong {
+    font-weight: $agent-ui-font-weight-semibold;
+  }
+
+  em {
+    font-style: italic;
+  }
+}
+
+// 工具类
+.agent-ui {
+  &-sr-only {
+    @include agent-ui-visually-hidden;
+  }
+
+  &-flex-center {
+    @include agent-ui-flex-center;
+  }
+
+  &-flex-between {
+    @include agent-ui-flex-between;
+  }
+
+  &-text-ellipsis {
+    @include agent-ui-text-ellipsis;
+  }
+}
+
+// 滚动条工具类
+.agent-ui-scrollbar {
+  @include agent-ui-scrollbar;
+}

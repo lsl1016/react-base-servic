@@ -1,0 +1,143 @@
+@use 'mixins' as *;
+@use 'theme' as *;
+@use 'variables' as *;
+@use 'code-highlight' as *;
+
+.agent-ui-client-tool-editor {
+  --agent-client-editor-insert-bg: rgba(0, 155, 16, 0.1);
+  --agent-client-editor-delete-bg: rgba(255, 77, 79, 0.1);
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  background: $agent-ui-bg-secondary;
+  color: $agent-ui-text-primary;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: $agent-ui-font-size-base;
+  font-weight: $agent-ui-font-weight-normal;
+  line-height: $agent-ui-line-height-base;
+
+  &[data-agent-editor-theme='light'] {
+    @include agent-ui-light-theme;
+  }
+
+  &[data-agent-editor-theme='dark'] {
+    @include agent-ui-dark-theme;
+    --agent-client-editor-insert-bg: rgba(85, 201, 130, 0.14);
+    --agent-client-editor-delete-bg: rgba(255, 116, 120, 0.14);
+  }
+
+  .hljs {
+    padding: 0;
+    background: transparent;
+    color: inherit;
+  }
+
+  @include agent-ui-code-highlight;
+}
+
+.agent-ui-client-code-scroll,
+.agent-ui-client-diff-scroll {
+  @include agent-ui-scrollbar;
+  @include agent-scroll-inner-shadow;
+  padding-bottom: 10px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  outline: none;
+}
+
+.agent-ui-client-code-pre,
+.agent-ui-client-diff-pre {
+  min-width: max-content;
+  min-height: 100%;
+  margin: 0;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.agent-ui-client-code-lines,
+.agent-ui-client-diff-lines {
+  display: block;
+  min-width: max-content;
+  font: inherit;
+  line-height: inherit;
+}
+
+.agent-ui-client-code-row,
+.agent-ui-client-diff-row {
+  display: grid;
+  grid-template-columns: minmax(48px, max-content) 26px minmax(max-content, 1fr);
+  min-width: 100%;
+  height: 24px;
+  align-items: center;
+}
+
+.agent-ui-client-code-row {
+  grid-template-columns: minmax(48px, max-content) minmax(max-content, 1fr);
+}
+
+.agent-ui-client-code-row-without-number {
+  grid-template-columns: minmax(max-content, 1fr);
+
+  .agent-ui-client-code-content {
+    padding-left: 20px;
+  }
+}
+
+.agent-ui-client-code-line-number,
+.agent-ui-client-diff-line-number {
+  min-width: 48px;
+  padding: 0 12px 0 8px;
+  color: $agent-ui-text-tertiary;
+  text-align: right;
+  user-select: none;
+}
+
+.agent-ui-client-diff-marker {
+  width: 26px;
+  color: $agent-ui-text-tertiary;
+  font-weight: 700;
+  text-align: center;
+  user-select: none;
+}
+
+.agent-ui-client-code-content,
+.agent-ui-client-diff-code {
+  display: block;
+  min-width: max-content;
+  padding-right: 20px;
+  white-space: pre;
+}
+
+.agent-ui-client-diff-row-delete {
+  background: var(--agent-client-editor-delete-bg);
+
+  .agent-ui-client-diff-marker {
+    color: $agent-ui-danger;
+  }
+}
+
+.agent-ui-client-diff-row-insert {
+  background: var(--agent-client-editor-insert-bg);
+
+  .agent-ui-client-diff-marker {
+    color: $agent-ui-success;
+  }
+}
+
+.agent-ui-client-diff-gap {
+  display: block;
+  height: 32px;
+  margin: 8px 12px;
+  padding: 4px 14px;
+  border-radius: 7px;
+  background: $agent-ui-bg-quaternary;
+  color: $agent-ui-text-tertiary;
+  line-height: 24px;
+  user-select: none;
+}

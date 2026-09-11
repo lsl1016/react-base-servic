@@ -1,0 +1,52 @@
+# ReAct 基座服务业务配置
+llm:
+  # 模型目录：每类模型的默认版本与上下文上限（供 LLM 客户端解析模型能力）
+  models:
+    claude:
+      default_version: "glm-4.6"
+      max_context_tokens: 1000000
+    gpt:
+      default_version: "gpt-5.2"
+      max_context_tokens: 1000000
+  model_version_limits:
+    "deepseek-v3":
+      max_completion_tokens: 16384
+
+  react:
+    # 请求未传 maxSteps 时的默认最大推理轮次。
+    max_steps: 8
+    # 单次模型流连续未收到 chunk 的最大秒数；超时后尝试互备模型。
+    stream_idle_timeout_sec: 120
+    # ReAct 前端可选模型。开启互备后失败会尝试列表中的其他模型。
+    models:
+      default:
+        model_key: "claude"
+        model_version: "glm-4.6"
+        display_name: "GLM 4.6 (Anthropic 协议)"
+      available:
+        - model_key: "claude"
+          model_version: "glm-4.6"
+          display_name: "GLM 4.6 (Anthropic 协议)"
+      mutual_failover: false
+    # 历史上下文自动压缩：高水位触发、低水位目标。
+    context_compact:
+      enabled: true
+      token_trigger: 170000
+      token_target: 90000
+      timeout_sec: 120
+      summary_limit: 12000
+      fallback_message_preview_limit: 2000
+    # 工具结果回填：大结果落库并通过 resultRef 分片读取。
+    tool_result:
+      inline_limit_bytes: 262144
+      preview_limit: 16384
+      db_ttl_sec: 604800
+      db_max_bytes: 16777216
+      read_limit: 8192
+      max_read_limit: 32768
+    # playground 页面访问白名单；为空时不限制。
+    playground_whitelist: []
+
+async_task:
+  # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转
+  enabled: false

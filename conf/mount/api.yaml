@@ -1,0 +1,33 @@
+# 外部 API 连接配置
+llm:
+  # LLM 网关 API Key（按服务分组）；通过 /apikey 接口注册的 caller 级 key 优先
+  api_keys:
+    default: "REPLACE_WITH_LLM_API_KEY"
+  endpoints:
+    claude:
+      api_url: "https://open.bigmodel.cn/api/anthropic"
+      max_tokens: 32768
+    gpt:
+      api_url: "https://openproxy.example.com/openproxy/rp"
+      max_tokens: 32768
+    gpt-cn:
+      api_url: "https://openproxy-cn.example.com/openproxy/rp"
+      max_tokens: 32768
+    claude-cn:
+      api_url: "https://openproxy-cn.example.com/openproxy/rp/pt/anthropic"
+      max_tokens: 32768
+    minimax:
+      api_url: "https://openproxy-cn.example.com/openproxy/rp"
+      max_tokens: 32768
+    minimax-cn:
+      api_url: "https://openproxy-cn.example.com/openproxy/rp"
+      max_tokens: 32768
+
+python_exec:
+  domain: http://python-exec.example.com
+  httpStat: false
+  idleConnTimeout: 300s
+  maxIdleConns: 100
+  retry: 1
+  service: python_exec
+  timeout: 120s

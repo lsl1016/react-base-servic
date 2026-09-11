@@ -1,0 +1,141 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+@use 'code-highlight' as *;
+
+.agent-ui-code-block {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 $agent-ui-spacing-md;
+  overflow: hidden;
+  border: 1px solid $agent-ui-border-color;
+  border-radius: $agent-ui-radius-lg;
+  color: $agent-ui-text-primary;
+  font-family: $agent-ui-font-family;
+  font-size: $agent-ui-font-size-base;
+  line-height: $agent-ui-line-height-base;
+  background: $agent-ui-bg-tertiary;
+}
+
+.agent-ui-code-block-toolbar {
+  @include agent-ui-flex-between;
+  height: $agent-ui-code-block-toolbar-height;
+  padding: 0 $agent-ui-spacing-sm 0 $agent-ui-spacing-lg;
+  background: transparent;
+}
+
+.agent-ui-code-block-language {
+  @include truncate;
+  color: $agent-ui-text-tertiary;
+  font-family: $agent-ui-font-family;
+  font-size: $agent-ui-font-size-xs;
+  line-height: 1;
+  text-transform: uppercase;
+
+}
+
+.agent-ui-code-block-meta {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: $agent-ui-spacing-md;
+}
+
+.agent-ui-code-block-additions {
+  flex-shrink: 0;
+  color: $agent-ui-success;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: $agent-ui-font-size-sm;
+  line-height: 1;
+}
+
+.agent-ui-code-block-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.agent-ui-code-block-action {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-center;
+  @include agent-ui-focus-ring;
+  width: auto;
+  min-width: 28px;
+  height: 25px;
+  padding: 0 $agent-ui-spacing-xs;
+  gap: $agent-ui-spacing-xs;
+  border: 1px solid transparent;
+  border-radius: $agent-ui-radius-md;
+  color: $agent-ui-text-tertiary;
+  font-size: $agent-ui-font-size-xs;
+  white-space: nowrap;
+
+  &:hover {
+    background: $agent-ui-bg-quaternary;
+    color: $agent-ui-text-primary;
+  }
+
+  &.is-active {
+    color: $agent-ui-primary;
+    font-weight: $agent-ui-font-weight-medium;
+  }
+}
+
+.agent-ui-code-block-scroll {
+  min-width: 0;
+  overflow: auto;
+  @include agent-ui-scrollbar;
+}
+
+.agent-ui-code-block:not(.agent-ui-code-block-fullscreen) .agent-ui-code-block-scroll {
+  max-height: $agent-ui-code-block-max-height;
+  @include agent-scroll-inner-shadow;
+  padding-bottom: 0;
+}
+
+.agent-ui-code-block .agent-ui-code-block-pre {
+  min-width: max-content;
+  margin: 0;
+  padding: $agent-ui-spacing-lg $agent-ui-spacing-xl;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: $agent-ui-text-primary;
+  cursor: text;
+
+  code.hljs {
+    display: block;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-weight: $agent-ui-font-weight-normal;
+    line-height: $agent-ui-line-height-base;
+  }
+}
+
+.agent-ui-code-block-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: $agent-ui-code-block-fullscreen-z-index;
+  display: grid;
+  grid-template-rows: $agent-ui-code-block-toolbar-height minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: $agent-ui-bg-primary;
+
+  .agent-ui-code-block-scroll {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    background: $agent-ui-bg-secondary;
+  }
+}
+
+.agent-ui-code-block {
+  @include agent-ui-code-highlight;
+}

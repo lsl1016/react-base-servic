@@ -1,0 +1,67 @@
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-thought-block {
+  @include agent-ui-flex-column;
+  border-radius: $agent-ui-radius-md;
+  overflow: hidden;
+  margin-bottom: 0;
+  
+}
+
+.agent-ui-thought-toggle {
+  @include agent-ui-button-reset;
+  @include agent-ui-flex-between;
+  padding: $agent-ui-spacing-xs $agent-ui-spacing-md;
+  padding-left: 0;
+  width: 100%;
+  color: $agent-ui-text-secondary;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  @include agent-ui-transition(background-color);
+}
+
+.agent-ui-thought-icon {
+  color: $agent-ui-text-tertiary;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  margin-right: $agent-ui-spacing-xs;
+}
+
+.agent-ui-thought-icon-brain {
+  margin-right: $agent-ui-spacing-xs;
+  color: $agent-ui-text-quaternary;
+
+}
+
+.agent-ui-thought-label {
+  flex: 1;
+  text-align: left;
+  color: $agent-ui-message-meta;
+
+}
+
+.agent-ui-thought-content {
+  padding: $agent-ui-spacing-xs;
+  margin-top: $agent-ui-spacing-xs;
+  padding-left: $agent-ui-spacing-lg;
+  line-height: $agent-ui-line-height-tight;
+  color: $agent-ui-message-meta;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes agent-ui-slide-down {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}

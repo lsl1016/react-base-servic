@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN" class="rp-auth-pending">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReAct Playground</title>
+  <link rel="stylesheet" href="/react-base-service/react/sdk/0.0.1.css" />
+  <link rel="stylesheet" href="/react-base-service/react/index.css" />
+</head>
+<body>
+  <div id="auth-state" class="rp-auth-state" role="status">正在验证登录状态...</div>
+  <div class="rp-root">
+    <section class="rp-section rp-left">
+      <div id="config-bar" class="rp-config-bar">
+        <div class="rp-config-row rp-config-row-primary">
+          <div class="rp-field">
+            <label class="rp-field-label" for="caller-key-input">callerKey</label>
+            <input id="caller-key-input" class="rp-control rp-control-size-default" value="demo-app" />
+          </div>
+          <div class="rp-field">
+            <label class="rp-field-label" for="route-values-input">routeValues</label>
+            <input id="route-values-input" class="rp-control rp-control-size-default" placeholder="逗号分隔，如 report_a,chart_b" />
+          </div>
+          <div class="rp-actions rp-config-actions">
+            <button
+              id="toggle-sdk-theme"
+              class="rp-button rp-icon-button"
+              type="button"
+              aria-label="切换到暗色主题"
+              aria-pressed="false"
+              title="切换到暗色主题"
+            ><span aria-hidden="true">☾</span></button>
+            <button
+              id="toggle-more-capabilities"
+              class="rp-button rp-secondary-btn"
+              type="button"
+              aria-expanded="false"
+              aria-controls="more-capabilities-panel"
+            >更多能力 ▾</button>
+            <button id="apply-config" class="rp-button rp-primary-btn" type="button">应用配置</button>
+          </div>
+        </div>
+        <div id="more-capabilities-panel" class="rp-more-capabilities rp-hidden">
+          <div class="rp-caller-actions-row">
+            <div>
+              <div class="rp-config-section-title">Caller 配置管理</div>
+              <div class="rp-caller-actions-description">复制或删除当前 Caller 下的全部配置资源。</div>
+            </div>
+            <div class="rp-actions rp-caller-actions">
+              <button id="copy-caller" class="rp-button rp-secondary-btn" type="button">复制 Caller</button>
+              <button id="delete-caller" class="rp-button rp-danger-outline-btn" type="button">删除 Caller</button>
+            </div>
+          </div>
+          <div id="context-config-panel" class="rp-config-row rp-config-row-context">
+            <div class="rp-config-section-title">上下文配置</div>
+            <div class="rp-config-context-grid">
+              <div class="rp-field">
+                <label class="rp-field-label" for="control-context-input">controlContext</label>
+                <textarea id="control-context-input" class="rp-control rp-textarea rp-config-textarea" placeholder='JSON 对象，如 {"debug":true}'></textarea>
+              </div>
+              <div class="rp-field">
+                <label class="rp-field-label" for="llm-context-input">llmContext</label>
+                <textarea id="llm-context-input" class="rp-control rp-textarea rp-config-textarea" placeholder='JSON 对象，如 {"page":"report"}'></textarea>
+              </div>
+            </div>
+          </div>
+          <div class="rp-config-row rp-input-api-demo">
+            <div class="rp-config-section-title rp-input-api-title">输入填充 · fillInput API 演示</div>
+            <div class="rp-field rp-input-api-field">
+              <label class="rp-field-label" for="input-api-demo-value">输入内容</label>
+              <input
+                id="input-api-demo-value"
+                class="rp-control rp-control-size-default"
+                value="请总结当前对话，并给出下一步建议"
+                placeholder="输入要预填到聊天框的内容"
+              />
+            </div>
+            <div class="rp-actions rp-input-api-actions">
+              <button id="input-api-fill" class="rp-button rp-secondary-btn" type="button">仅预填</button>
+              <button id="input-api-submit" class="rp-button rp-primary-btn" type="button">预填并发送</button>
+            </div>
+            <div id="input-api-demo-state" class="rp-input-api-state" role="status" aria-live="polite"></div>
+          </div>
+          <div class="rp-config-row rp-replay-entry">
+            <div>
+              <div class="rp-config-section-title">会话重放</div>
+              <div class="rp-replay-entry-description">粘贴会话定位信息，在新页面按事件只读重放。</div>
+            </div>
+            <button id="open-replay" class="rp-button rp-secondary-btn rp-replay-entry-link" type="button">打开重放</button>
+          </div>
+        </div>
+      </div>
+      <div id="agent-root" class="rp-agent-root"></div>
+    </section>
+    <aside class="rp-section rp-right">
+      <div class="rp-management-tabs" id="management-tabs"></div>
+      <div class="rp-management-toolbar">
+        <div id="management-title" class="rp-management-title">工具管理</div>
+        <label class="rp-field rp-compact">
+          <span class="rp-field-label">关键字</span>
+          <input id="management-keyword" class="rp-control rp-control-size-default" placeholder="搜索" />
+        </label>
+        <label class="rp-field rp-compact">
+          <span class="rp-field-label">状态</span>
+          <select id="management-status" class="rp-control rp-control-size-default">
+            <option value="all">全部</option>
+            <option value="enabled">启用</option>
+            <option value="disabled">停用</option>
+          </select>
+        </label>
+        <div class="rp-management-actions">
+          <button id="management-add" class="rp-button rp-primary-btn" type="button">新增</button>
+          <button id="management-refresh" class="rp-button" type="button">刷新</button>
+        </div>
+      </div>
+      <div id="management-state" class="rp-state-bar rp-hidden"></div>
+      <div class="rp-table-wrap">
+        <table class="rp-management-table">
+          <thead id="management-head" class="rp-table-head"></thead>
+          <tbody id="management-body"></tbody>
+        </table>
+      </div>
+    </aside>
+  </div>
+
+  <div id="replay-modal-mask" class="rp-modal-mask">
+    <div class="rp-modal rp-replay-modal" role="dialog" aria-modal="true" aria-labelledby="replay-modal-title">
+      <div class="rp-modal-header">
+        <h3 id="replay-modal-title" class="rp-modal-title">会话重放</h3>
+        <button id="replay-modal-close" class="rp-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="rp-modal-body">
+        <label class="rp-field rp-span-all" for="replay-scope-input">
+          <span class="rp-field-label">会话定位信息</span>
+          <textarea id="replay-scope-input" class="rp-control rp-textarea rp-replay-textarea" spellcheck="false">{
+  "sessionId": "session_64b5fc2d95dd4a8bbf56efd1432aeb4a",
+  "callerKey": "demo-app",
+  "routeValues": []
+}</textarea>
+        </label>
+        <div id="replay-modal-state" class="rp-replay-modal-state" role="status" aria-live="polite"></div>
+      </div>
+      <div class="rp-modal-footer">
+        <button id="replay-modal-cancel" class="rp-button" type="button">取消</button>
+        <button id="replay-modal-confirm" class="rp-button rp-primary-btn" type="button">打开重放页面</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="copy-caller-modal-mask" class="rp-modal-mask">
+    <div class="rp-modal" role="dialog" aria-modal="true" aria-labelledby="copy-caller-modal-title">
+      <div class="rp-modal-header">
+        <h3 id="copy-caller-modal-title" class="rp-modal-title">复制 Caller</h3>
+        <button id="copy-caller-modal-close" class="rp-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="rp-modal-body">
+        <div class="rp-form-grid">
+          <label class="rp-field">
+            <span class="rp-field-label">源 Caller</span>
+            <input id="copy-source-caller" class="rp-control rp-control-size-default" readonly />
+          </label>
+          <label class="rp-field">
+            <span class="rp-field-label">目标 callerKey</span>
+            <input id="copy-target-caller" class="rp-control rp-control-size-default" maxlength="32" />
+          </label>
+          <label class="rp-field">
+            <span class="rp-field-label">目标名称</span>
+            <input id="copy-target-name" class="rp-control rp-control-size-default" maxlength="128" />
+          </label>
+          <label class="rp-field">
+            <span class="rp-field-label">平台</span>
+            <input id="copy-target-platform" class="rp-control rp-control-size-default" maxlength="32" />
+          </label>
+          <label class="rp-field rp-span-all">
+            <span class="rp-field-label">描述</span>
+            <textarea id="copy-target-description" class="rp-control rp-textarea"></textarea>
+          </label>
+        </div>
+        <div class="rp-operation-note">将复制源 Caller 下所有路由层级的 Skill、系统提示词、Tool、Tool 用户策略和 API Key。</div>
+        <div id="copy-caller-modal-state" class="rp-operation-state" role="status" aria-live="polite"></div>
+      </div>
+      <div class="rp-modal-footer">
+        <button id="copy-caller-modal-cancel" class="rp-button" type="button">取消</button>
+        <button id="copy-caller-modal-confirm" class="rp-button rp-primary-btn" type="button">确认复制</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-caller-modal-mask" class="rp-modal-mask">
+    <div class="rp-modal rp-danger-modal" role="dialog" aria-modal="true" aria-labelledby="delete-caller-modal-title">
+      <div class="rp-modal-header">
+        <h3 id="delete-caller-modal-title" class="rp-modal-title">删除 Caller</h3>
+        <button id="delete-caller-modal-close" class="rp-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="rp-modal-body">
+        <div class="rp-operation-note rp-operation-note-danger">此操作将软删除 Caller 及其 Skill、系统提示词、Tool、Tool 用户策略和 API Key。历史会话与运行记录会保留。</div>
+        <label class="rp-field rp-span-all">
+          <span id="delete-caller-confirm-label" class="rp-field-label">请输入 callerKey 确认</span>
+          <input id="delete-caller-confirm-input" class="rp-control rp-control-size-default" autocomplete="off" />
+        </label>
+        <div id="delete-caller-modal-state" class="rp-operation-state" role="status" aria-live="polite"></div>
+      </div>
+      <div class="rp-modal-footer">
+        <button id="delete-caller-modal-cancel" class="rp-button" type="button">取消</button>
+        <button id="delete-caller-modal-confirm" class="rp-button rp-danger-btn" type="button">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="management-modal-mask" class="rp-modal-mask">
+    <div class="rp-modal">
+      <div class="rp-modal-header">
+        <h3 id="management-modal-title" class="rp-modal-title">编辑</h3>
+        <button id="management-modal-close" class="rp-button" type="button">×</button>
+      </div>
+      <div id="management-modal-body" class="rp-modal-body"></div>
+      <div class="rp-modal-footer">
+        <button id="management-modal-cancel" class="rp-button" type="button">取消</button>
+        <button id="management-modal-save" class="rp-button rp-primary-btn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/react-base-service/react/ips.js"></script>
+</body>
+</html>
