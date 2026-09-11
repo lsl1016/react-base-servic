@@ -17,6 +17,7 @@ import (
 const (
 	ToolTypeHTTP   = "http"
 	ToolTypeClient = "client"
+	ToolTypeMCP    = "mcp"
 
 	maxToolConfigLen = 32 * 1024
 )
@@ -71,7 +72,7 @@ func NormalizeToolType(toolType string) string {
 
 func IsAllowedToolType(toolType string) bool {
 	switch NormalizeToolType(toolType) {
-	case ToolTypeHTTP, ToolTypeClient:
+	case ToolTypeHTTP, ToolTypeClient, ToolTypeMCP:
 		return true
 	default:
 		return false
@@ -121,6 +122,11 @@ func validateToolConfig(raw json.RawMessage, toolType string) error {
 		}
 		if len(cfg.InputSchema) == 0 {
 			return fmt.Errorf("http 工具 config 缺少 inputSchema 字段")
+		}
+	}
+	if normalizedToolType == ToolTypeMCP {
+		if strings.TrimSpace(cfg.MCPServer) == "" || strings.TrimSpace(cfg.MCPTool) == "" {
+			return fmt.Errorf("mcp 工具 config 缺少 mcpServer/mcpTool 字段")
 		}
 	}
 	return nil

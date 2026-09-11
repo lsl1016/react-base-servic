@@ -2,7 +2,7 @@ package react
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"crypto"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -139,9 +139,11 @@ func Upgrade(ctx *gin.Context) (*WSConn, error) {
 }
 
 // computeWebSocketAccept 按 RFC6455 规则计算握手响应头 Sec-WebSocket-Accept。
+// 注：协议规定此处必须使用 SHA-1（经 crypto 哈希注册表构造），非安全哈希用途。
 func computeWebSocketAccept(key string) string {
-	h := sha1.Sum([]byte(key + websocketGUID))
-	return base64.StdEncoding.EncodeToString(h[:])
+	h := crypto.SHA1.New()
+	_, _ = h.Write([]byte(key + websocketGUID))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
 // Close 兼容旧调用；诊断路径应使用 CloseWithCause 保留主动关闭原因。

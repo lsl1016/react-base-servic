@@ -136,7 +136,22 @@ type ModelCatalog struct {
 // TCustom 对应 custom.yaml（LLM 业务配置）
 type TCustom struct {
 	LLM       LLMConfig       `yaml:"llm"`
+	MCP       MCPConfig       `yaml:"mcp"`
 	AsyncTask AsyncTaskConfig `yaml:"async_task"`
+}
+
+// MCPConfig 声明 MCP 客户端：servers 的 kind 必须命中代码内适配器白名单。
+type MCPConfig struct {
+	// CallerKey 是 MCP 工具同步进注册表时挂载的调用方；为空则不启用 MCP。
+	CallerKey string         `yaml:"caller_key"`
+	Servers   []MCPServerConf `yaml:"servers"`
+}
+
+// MCPServerConf 描述一个 MCP 服务器：kind 选自适配器白名单，env 注入子进程环境变量。
+type MCPServerConf struct {
+	Name string            `yaml:"name"`
+	Kind string            `yaml:"kind"`
+	Env  map[string]string `yaml:"env"`
 }
 
 // AsyncTaskConfig 控制异步任务状态同步框架。

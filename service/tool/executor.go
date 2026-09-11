@@ -27,6 +27,9 @@ type ToolConfig struct {
 	InputSchema  map[string]interface{} `json:"inputSchema,omitempty"`
 	OutputSchema map[string]interface{} `json:"outputSchema,omitempty"`
 	FrontendHint string                 `json:"frontendHint,omitempty"`
+	// MCPServer/MCPTool 标识 mcp 类型工具的路由目标（service/mcpclient 同步写入）。
+	MCPServer string `json:"mcpServer,omitempty"`
+	MCPTool   string `json:"mcpTool,omitempty"`
 	// Async 标识提交型异步工具：调用成功仅代表任务受理，结果需异步获取。
 	Async bool `json:"async,omitempty"`
 	// AsyncHint 描述旧模式下由模型查询结果的方式，随提醒注入给模型。

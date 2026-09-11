@@ -2,7 +2,7 @@ package react
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -121,7 +121,7 @@ func (s *reactEngineState) closeInterruptedToolUse(call llm.ToolCall, step int, 
 
 // buildResultRef 基于工具调用和内容生成短引用 ID，用于后续 read_tool_result 分片读取。
 func buildResultRef(toolUseID, content string) string {
-	sum := sha1.Sum([]byte(toolUseID + "\x00" + content + "\x00" + time.Now().Format(time.RFC3339Nano)))
+	sum := sha256.Sum256([]byte(toolUseID + "\x00" + content + "\x00" + time.Now().Format(time.RFC3339Nano)))
 	return "result_ref_" + hex.EncodeToString(sum[:])[:24]
 }
 

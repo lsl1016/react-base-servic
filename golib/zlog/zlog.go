@@ -63,8 +63,11 @@ func SetNoLogFlag(ctx context.Context) {
 	}
 }
 
-// GetLogID 读取请求日志 ID。
+// GetLogID 读取请求日志 ID；ctx 为 nil 时返回空串。
 func GetLogID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
 	if ginCtx, ok := ctx.(*gin.Context); ok {
 		if v := ginCtx.GetString("logID"); v != "" {
 			return v
@@ -76,8 +79,11 @@ func GetLogID(ctx context.Context) string {
 	return ""
 }
 
-// GetRequestID 读取请求 ID。
+// GetRequestID 读取请求 ID；ctx 为 nil 时返回空串。
 func GetRequestID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
 	if ginCtx, ok := ctx.(*gin.Context); ok {
 		if v := ginCtx.GetString("requestId"); v != "" {
 			return v

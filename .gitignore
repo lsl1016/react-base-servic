@@ -60,3 +60,6 @@ react-base-service
 
 # Analysis and evaluation workspaces may contain raw SQL, conversations, and run artifacts.
 # Only reviewed assets should be force-added to Git.
+/data/
+/bin/
+/.mimosa/

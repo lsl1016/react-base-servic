@@ -14,6 +14,7 @@ import (
 	"react-base-service/components/params"
 	"react-base-service/conf"
 	model "react-base-service/models/llm"
+	"react-base-service/service/mcpclient"
 	toolService "react-base-service/service/tool"
 
 	"react-base-service/golib/zlog"
@@ -560,6 +561,20 @@ func (s *reactEngineState) executeServerTool(call llm.ToolCall, tool model.Tool,
 	var input interface{}
 	if len(call.Input) > 0 {
 		_ = json.Unmarshal(call.Input, &input)
+	}
+	// mcp 类型工具：转发给 MCP 客户端子进程执行（无鉴权，本机受信环境）。
+	if cfg, cfgErr := toolService.ParseToolConfig(tool.Config); cfgErr == nil && strings.TrimSpace(cfg.MCPServer) != "" {
+		timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
+		if timeout <= 0 {
+			timeout = 60 * time.Second
+		}
+		content, callErr := mcpclient.Call(cfg.MCPServer, cfg.MCPTool, call.Input, timeout)
+		normalized := normalizeToolResult(call.ID, content, callErr != nil, executedByServer)
+		if callErr != nil {
+			normalized.Content = callErr.Error()
+		}
+		_ = s.emitter.EmitStep(step, EventToolUseEnd, params.ReactToolUseEndPayload{ToolUseID: call.ID, Content: normalized.Content, ResultRef: normalized.ResultRef, Truncated: normalized.Truncated, OmittedChars: normalized.OmittedChars, IsError: normalized.IsError, ExecutedBy: executedByServer, Status: normalized.Status, DurationMs: time.Since(start).Milliseconds()})
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: normalized.LLMContent(), IsError: normalized.IsError}, nil
 	}
 	content, err := toolService.ExecuteHTTPTool(s.runCtx, tool.Config, input, requestCookies(s.ctx))
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

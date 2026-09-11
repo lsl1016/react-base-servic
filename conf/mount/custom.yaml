@@ -49,6 +49,17 @@ llm:
     # playground 页面访问白名单；为空时不限制。
     playground_whitelist: []
 
+# MCP 客户端：kind 选自代码内适配器白名单（当前支持 repo=只读本地仓库适配器，
+# 可执行文件部署于 bin/ 下；env 注入子进程环境变量，如 REPO_ROOT）。
+# caller_key 是 MCP 工具同步进注册表时挂载的调用方；留空或不配置 mcp 段则不启用。
+mcp:
+  caller_key: demo-app
+  servers:
+    - name: repo
+      kind: repo
+      env:
+        REPO_ROOT: 'C:/Users/keke/Desktop/xm/react-base-service'
+
 async_task:
   # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转
   enabled: false
