@@ -26,6 +26,7 @@ func InitCos() {
 		Region:    cfg.Region,
 		Endpoint:  cfg.Endpoint,
 		Timeout:   cfg.Timeout,
+		LocalDir:  cfg.LocalDir,
 		// Path 不在此处注入，避免和业务层 key 拼接重复。
 	})
 	if err != nil {
@@ -46,6 +47,7 @@ func EnsureCos() error {
 			Region:    cfg.Region,
 			Endpoint:  cfg.Endpoint,
 			Timeout:   cfg.Timeout,
+			LocalDir:  cfg.LocalDir,
 		})
 		if err != nil {
 			cosInitErr = fmt.Errorf("init cos failed: %w", err)

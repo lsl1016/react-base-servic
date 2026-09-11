@@ -13,7 +13,7 @@
 | Skill 体系 | Skill 注册 + 摘要索引注入 system 前缀 + get_skill 按需加载完整说明 |
 | 系统提示词 | 按 callerKey + routeValues 前缀匹配解析，多条由通用到具体拼接 |
 | 异步任务 | 提交快照落库、`<async_tasks>` 提醒注入、resolve/get 闭环工具、Provider 状态同步框架（可插拔） |
-| 产物与附件 | python_exec 沙箱执行 + COS 产物下载；csv/md/txt 附件上传与引用 |
+| 产物与附件 | python_exec 沙箱执行 + COS 产物下载（支持本地目录存储模式）；csv/md/txt 附件上传与引用 |
 | 轮次反馈 | run 级点赞/点踩与问题反馈，会话维度回显 |
 | 模型管理 | 用户自定义模型（modelHash 直引）、模型白名单、积分 |
 | 内置页面 | playground 联调页（`/react/playground`）、回放页（`/react/replay`）、TypeScript SDK |
@@ -32,7 +32,10 @@ vim conf/mount/custom.yaml     # 模型目录、ReAct 运行时、服务 token
 # 3. 构建前端 SDK（playground 页面依赖；不构建则仅 SDK 路由 404）
 cd web/sdk && npm i && npm run build && cd ../..
 
-# 4. 启动
+# 4. 启动本地 python 沙箱（可选；不启动则 python_exec 工具不可用）
+cd sandbox && SANDBOX_HOST=127.0.0.1 python server.py && cd ..   # 监听 :8190，需 pandas/numpy/matplotlib
+
+# 5. 启动
 go run main.go                 # 默认监听 :8080
 ```
 

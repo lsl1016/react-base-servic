@@ -24,17 +24,26 @@ type Config struct {
 	Region    string `yaml:"region"`
 	Endpoint  string `yaml:"endpoint"`
 	Timeout   int    `yaml:"timeout"`
-	Path      string `yaml:"path"` // 可选：默认路径前缀
+	Path      string `yaml:"path"`    // 可选：默认路径前缀
+	LocalDir  string `yaml:"localDir"` // 可选：本地目录存储模式，配置后无需腾讯云凭证（本地开发用）
 }
 
 // Client COS 客户端封装
 type Client struct {
 	raw    *tencentcos.Client
 	config Config
+	local  *localFS
 }
 
-// NewClient 创建 COS 客户端
+// NewClient 创建 COS 客户端；配置 localDir 时切换为本地目录存储模式。
 func NewClient(config Config) (*Client, error) {
+	if dir := strings.TrimSpace(config.LocalDir); dir != "" {
+		store, err := newLocalFS(dir)
+		if err != nil {
+			return nil, err
+		}
+		return &Client{config: config, local: store}, nil
+	}
 	if strings.TrimSpace(config.SecretID) == "" ||
 		strings.TrimSpace(config.SecretKey) == "" ||
 		strings.TrimSpace(config.Bucket) == "" {
@@ -70,6 +79,9 @@ func NewClient(config Config) (*Client, error) {
 
 // UploadFile 上传本地文件到 COS
 func (c *Client) UploadFile(ctx context.Context, localPath, cosKey string) error {
+	if c.local != nil {
+		return c.local.uploadFile(ctx, localPath, c.normalizeKey(cosKey))
+	}
 	f, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("open local file failed: %w", err)
@@ -90,6 +102,9 @@ func (c *Client) UploadFile(ctx context.Context, localPath, cosKey string) error
 
 // UploadData 上传字节数据到 COS
 func (c *Client) UploadData(ctx context.Context, data []byte, cosKey, contentType string) error {
+	if c.local != nil {
+		return c.local.uploadData(ctx, data, c.normalizeKey(cosKey), contentType)
+	}
 	key := c.normalizeKey(cosKey)
 	if contentType == "" {
 		contentType = detectContentType(cosKey)
@@ -108,6 +123,9 @@ func (c *Client) UploadData(ctx context.Context, data []byte, cosKey, contentTyp
 
 // DownloadFile 从 COS 下载对象到本地文件
 func (c *Client) DownloadFile(ctx context.Context, cosKey, localPath string) error {
+	if c.local != nil {
+		return c.local.downloadFile(ctx, c.normalizeKey(cosKey), localPath)
+	}
 	key := c.normalizeKey(cosKey)
 	dir := filepath.Dir(localPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -134,6 +152,9 @@ func (c *Client) DownloadFile(ctx context.Context, cosKey, localPath string) err
 
 // DownloadData 从 COS 下载对象到内存
 func (c *Client) DownloadData(ctx context.Context, cosKey string) ([]byte, error) {
+	if c.local != nil {
+		return c.local.downloadData(ctx, c.normalizeKey(cosKey))
+	}
 	key := c.normalizeKey(cosKey)
 	resp, err := c.raw.Object.Get(ctx, key, nil)
 	if err != nil {
@@ -150,6 +171,9 @@ func (c *Client) DownloadData(ctx context.Context, cosKey string) ([]byte, error
 
 // DownloadRange 按闭区间读取 COS 对象字节，避免大文件分页读取时重复下载完整对象。
 func (c *Client) DownloadRange(ctx context.Context, cosKey string, start, end int64) ([]byte, error) {
+	if c.local != nil {
+		return c.local.downloadRange(ctx, c.normalizeKey(cosKey), start, end)
+	}
 	if start < 0 || end < start {
 		return nil, fmt.Errorf("invalid cos byte range: %d-%d", start, end)
 	}
@@ -180,6 +204,9 @@ func (c *Client) GetObject(ctx context.Context, cosKey string) ([]byte, error) {
 
 // DeleteObject 删除 COS 对象
 func (c *Client) DeleteObject(ctx context.Context, cosKey string) error {
+	if c.local != nil {
+		return c.local.deleteObject(ctx, c.normalizeKey(cosKey))
+	}
 	key := c.normalizeKey(cosKey)
 	if _, err := c.raw.Object.Delete(ctx, key); err != nil {
 		return fmt.Errorf("cos delete object failed: %w", err)
@@ -189,6 +216,14 @@ func (c *Client) DeleteObject(ctx context.Context, cosKey string) error {
 
 // DeleteObjects 批量删除 COS 对象
 func (c *Client) DeleteObjects(ctx context.Context, cosKeys []string) error {
+	if c.local != nil {
+		for _, cosKey := range cosKeys {
+			if err := c.local.deleteObject(ctx, c.normalizeKey(cosKey)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if len(cosKeys) == 0 {
 		return nil
 	}
@@ -217,6 +252,9 @@ func (c *Client) DeleteObjects(ctx context.Context, cosKeys []string) error {
 
 // IsExist 检查 COS 对象是否存在
 func (c *Client) IsExist(ctx context.Context, cosKey string) (bool, error) {
+	if c.local != nil {
+		return c.local.isExist(ctx, c.normalizeKey(cosKey))
+	}
 	key := c.normalizeKey(cosKey)
 	if _, err := c.raw.Object.Head(ctx, key, nil); err != nil {
 		if tencentcos.IsNotFoundError(err) {
@@ -229,6 +267,9 @@ func (c *Client) IsExist(ctx context.Context, cosKey string) (bool, error) {
 
 // GetURL 获取对象的临时访问 URL（带签名）
 func (c *Client) GetURL(ctx context.Context, cosKey string, expire time.Duration) (string, error) {
+	if c.local != nil {
+		return c.local.getURL(c.normalizeKey(cosKey))
+	}
 	key := c.normalizeKey(cosKey)
 	u, err := c.raw.Object.GetPresignedURL(
 		ctx,
@@ -247,6 +288,9 @@ func (c *Client) GetURL(ctx context.Context, cosKey string, expire time.Duration
 
 // ListObjects 按前缀列举 COS 对象
 func (c *Client) ListObjects(ctx context.Context, prefix string, maxCount int) ([]string, error) {
+	if c.local != nil {
+		return c.local.listObjects(c.normalizeKey(prefix), maxCount)
+	}
 	if maxCount <= 0 {
 		maxCount = 1000
 	}
@@ -277,6 +321,9 @@ func (c *Client) ReadFile(ctx context.Context, cosKey string) (string, error) {
 
 // AppendObject 向 COS 对象追加内容（下载后拼接再上传）
 func (c *Client) AppendObject(ctx context.Context, cosKey string, appendData []byte, contentType string) error {
+	if c.local != nil {
+		return c.local.appendObject(ctx, c.normalizeKey(cosKey), appendData, contentType)
+	}
 	exists, err := c.IsExist(ctx, cosKey)
 	if err != nil {
 		return err

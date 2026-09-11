@@ -9,11 +9,34 @@
 | Redis | ≥ 5.x | 附件元数据缓存 |
 | 腾讯云 COS | 一个私有桶 | 附件与 python_exec 产物存储 |
 | LLM 网关 | claude / OpenAI 兼容 / minimax 端点 | 模型调用 |
-| Python 沙箱 | python-exec 服务（可选*） | python_exec 工具 |
+| Python 沙箱 | 本地沙箱（`sandbox/`，可选*） | python_exec 工具 |
 | Node | ≥ 20（仅构建 SDK 时） | web/sdk 构建 |
 
 \* 不部署 python 沙箱时服务可正常启动与对话，仅 `python_exec` 工具不可用。
 \* 全部 Go 依赖均为公共模块（gin v1.10 / gorm / redigo 等），无需访问内部 Git 源。
+
+### python_exec 本地沙箱
+
+沙箱是一个独立 HTTP 服务，实现 `POST /api/pythonexec/execute` 协议（请求 `{logId, python, data}`，响应 `{code, message, data:{exitCode, stdout, stderr, timedOut}}`）。安全模型：logId 白名单校验 + AST 静态扫描（import 白名单 sys/json/pandas/numpy/math/statistics/datetime/io/base64/matplotlib，禁 eval/exec/open 等）+ 隔离子进程（`python -I`、最小环境变量）+ CPU/内存 rlimit（Unix）+ 超时强杀进程组。
+
+两种运行方式：
+
+```bash
+# 方式一：宿主机直接运行（开发推荐；需 python3 + pandas/numpy/matplotlib）
+cd sandbox && SANDBOX_HOST=127.0.0.1 python server.py     # 监听 :8190
+
+# 方式二：Docker（隔离更强：非 root + 只读根文件系统 + tmpfs /tmp + 内存/CPU 限额）
+docker build -t react-sandbox:local sandbox/
+docker run -d --name react-sandbox -p 8190:8190 --memory 1g --cpus 1.5 \
+  --read-only --tmpfs /tmp:rw,size=128m react-sandbox:local
+```
+
+对应配置：`api.yaml` 的 `python_exec.domain`（默认 `http://127.0.0.1:8190`）；产物存储见下。
+
+### 产物存储（COS / 本地目录）
+
+- 腾讯云 COS：填 `resource.yaml` 的 `cos.secretID/secretKey/bucket/...`；
+- 本地目录模式（开发）：`cos.localDir` 配置后产物与附件落本地磁盘（key 即相对路径，禁 `..` 越界），无需腾讯云凭证；两者互斥，配 `localDir` 优先。
 
 ## 2. 建库
 

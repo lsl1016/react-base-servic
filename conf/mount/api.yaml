@@ -24,7 +24,7 @@ llm:
       max_tokens: 32768
 
 python_exec:
-  domain: http://python-exec.example.com
+  domain: http://127.0.0.1:8190
   httpStat: false
   idleConnTimeout: 300s
   maxIdleConns: 100

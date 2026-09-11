@@ -152,6 +152,7 @@ type COSConfig struct {
 	Endpoint   string `yaml:"endpoint"`
 	Timeout    int    `yaml:"timeout"`
 	PathPrefix string `yaml:"pathPrefix"`
+	LocalDir   string `yaml:"localDir"`
 }
 
 // LLMApiConfig LLM API 连接配置（api_key、各模型的接口地址等）
