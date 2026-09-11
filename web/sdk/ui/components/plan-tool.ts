@@ -90,10 +90,8 @@ export function getStartedPlanItems(toolCall: ToolCallState): PlanInputItem[] {
 
 export function shouldRenderPlanTool(toolCall: ToolCallState): boolean {
   const input = readPlanToolInput(toolCall);
-  // 暂时下线 create_plan 卡片，todo_write 的展示逻辑保持不变；保留原分支便于恢复。
   if (input.kind === 'plan') {
-    // return input.todos.length > 0;
-    return false;
+    return input.todos.length > 0;
   }
   return input.merge ? getStartedPlanItems(toolCall).length > 0 : input.todos.length > 0;
 }

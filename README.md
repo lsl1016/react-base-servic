@@ -7,6 +7,7 @@
 | 能力 | 说明 |
 |---|---|
 | ReAct 运行时 | WebSocket 单入口 `/react-base-service/react/ws`，模型流式输出 + 工具循环 + 上下文自动压缩 + 模型互备 |
+| 计划确认 | `create_plan` Meta Tool：复杂任务先提交分步计划，前端计划卡片 + 「开始任务」确认后按计划执行（进度走 todo）；`llm.react.allow_plan: false` 可关闭（未配置默认开启） |
 | 会话管理 | 会话隐式创建/复用（事务加锁 + 归属校验）、会话列表、并发 run 互斥、软删状态 |
 | 历史回放 | 持久化消息还原为与实时协议同形的事件流（`/react/session/events`），内置回放页面 `/react/replay` |
 | 工具体系 | Business Tool 注册（http/client 两类）、两段式加载、输入 Schema 校验、白名单、异步提交型工具 |

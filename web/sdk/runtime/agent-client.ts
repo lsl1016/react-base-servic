@@ -315,8 +315,7 @@ export class AgentClient {
     // 用户主动发送：重新给满自动续跑额度。放在这里而不是 sendRun，
     // 因为 sendRun 也是自动续跑自己走的路径，放那儿等于永远清不掉。
     this.consecutiveRecoveryRuns = 0;
-    // 暂时下线 create_plan 的确认状态更新，保留代码，后续恢复时取消注释。
-    // this.reducer.markPendingPlanSubmitting();
+    this.reducer.markPendingPlanSubmitting();
     const sessionId = this.reducer.getState().sessionId;
     let hookLlmContext: LlmContext | undefined | Promise<LlmContext | undefined>;
     try {
@@ -326,8 +325,7 @@ export class AgentClient {
         inputOrigin: options?.inputOrigin,
       });
     } catch (error) {
-      // 暂时下线 create_plan 的确认状态回滚，保留代码，后续恢复时取消注释。
-      // this.reducer.markSubmittingPlanSendFailed();
+      this.reducer.markSubmittingPlanSendFailed();
       throw error;
     }
 
@@ -335,8 +333,7 @@ export class AgentClient {
       return Promise.resolve(hookLlmContext).then((resolvedLlmContext) => {
         this.sendRun(userPrompt, options, resolvedLlmContext);
       }).catch((error) => {
-        // 暂时下线 create_plan 的确认状态回滚，保留代码，后续恢复时取消注释。
-        // this.reducer.markSubmittingPlanSendFailed();
+        this.reducer.markSubmittingPlanSendFailed();
         throw error;
       });
     }
@@ -344,15 +341,14 @@ export class AgentClient {
     this.sendRun(userPrompt, options, hookLlmContext);
   }
 
-  /** 暂时下线 create_plan，保留确认 API 代码，后续恢复时取消注释。 */
-  confirmPlan(_planId: string): void | Promise<void> {
-    // if (!planId || this.isRunInProgress() || this.reducer.getState().status === 'recovering') {
-    //   return;
-    // }
-    // return this.run('开始执行刚才的计划', {
-    //   inputOrigin: { type: 'manual' },
-    // });
-    return;
+  /** 确认计划：以一条新 run 指示模型开始执行刚提交的计划；新 run 启动后 reducer 会把计划置为 accepted。 */
+  confirmPlan(planId: string): void | Promise<void> {
+    if (!planId || this.isRunInProgress() || this.reducer.getState().status === 'recovering') {
+      return;
+    }
+    return this.run('开始执行刚才的计划', {
+      inputOrigin: { type: 'manual' },
+    }) as void | Promise<void>;
   }
 
   /**

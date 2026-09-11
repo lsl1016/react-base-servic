@@ -10,6 +10,7 @@ import (
 	llm "react-base-service/api/llm"
 	"react-base-service/components/params"
 	"react-base-service/components/route"
+	"react-base-service/conf"
 	model "react-base-service/models/llm"
 	toolService "react-base-service/service/tool"
 )
@@ -34,12 +35,14 @@ const (
 	metaToolReadAttachment = "read_attachment"
 	// metaToolInspectAttachment 探查 csv 附件的表结构（写分析代码前的准备）。
 	metaToolInspectAttachment = "inspect_attachment"
+	// metaToolCreatePlan 提交分步执行计划，等待用户在前端确认后执行（第一期：确认交互闭环）。
+	metaToolCreatePlan = "create_plan"
 )
 
 // isInternalMetaTool 判断工具名是否属于 Runtime 内置 Meta Tool，内置工具不走外部工具注册表。
 func isInternalMetaTool(name string) bool {
 	switch name {
-	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment:
+	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan:
 		return true
 	default:
 		return false
@@ -47,25 +50,27 @@ func isInternalMetaTool(name string) bool {
 }
 
 // internalMetaToolDefinitions 定义 Runtime 内置工具（稳定 Meta Tool 集合）。
+// allow_plan=false 时 create_plan 不进工具列表（模型不可见）。
 func internalMetaToolDefinitions() []llm.ToolDefinition {
 	definitions := []llm.ToolDefinition{
 		// list_tools 已软下线：Business Tool 轻量索引在 run 初始化阶段注入 system 前缀，完整 parameters 仍通过 get_tool 按需加载。
 		objectTool(metaToolGetTool, "按 toolId 或 name 加载一个 Business Tool，并返回其 parameters/outputSchema；加载后必须通过 execute_tool 调用，不要直接调用返回的业务工具名", map[string]interface{}{"toolId": stringSchema("工具ID，可选"), "name": stringSchema("工具名称，可选")}),
 		executeToolDefinition(),
 		// list_skills 已软下线：Skill 摘要在 run 初始化阶段注入 system 前缀，完整说明仍通过 get_skill 按需加载。
-		objectTool(metaToolGetSkill, "按 skillId 或 name 加载一个 Skill 的完整说明", map[string]interface{}{"skillId": stringSchema("Skill ID，可选"), "name": stringSchema("Skill 名称，可选")}),
+		objectTool(metaToolGetSkill, "按 skillId 或 name 加载一个 Skill 的完整说明", map[string]interface{}{"skillId": stringSchema("技能ID，可选"), "name": stringSchema("技能名称，可选")}),
 		objectTool(metaToolReadToolResult, "读取 resultRef 指向的工具大结果或 StepResultRef 指向的正式步骤结果。该工具只读取授权范围内的原始内容；理解 JSON 结构时优先使用 inspect_data。", map[string]interface{}{"resultRef": stringSchema("工具结果 resultRef，或 StepResultRef.step_result_id"), "offset": numberSchema("读取起始位置，可选"), "limit": numberSchema("单次读取长度，可选")}),
 		inspectDataToolDefinition(),
 		pythonExecToolDefinition(),
 		todoWriteToolDefinition(),
-		// 暂时下线 create_plan，保留实现代码，后续恢复时取消注释。
-		// createPlanToolDefinition(),
 		askQuestionToolDefinition(),
 		displayFilesToolDefinition(),
 		resolveAsyncTaskToolDefinition(),
 		getAsyncTaskToolDefinition(),
 		readAttachmentToolDefinition(),
 		inspectAttachmentToolDefinition(),
+	}
+	if conf.CustomConf.LLM.React.AllowPlanEnabled() {
+		definitions = append(definitions, createPlanToolDefinition())
 	}
 	return definitions
 }
@@ -322,9 +327,8 @@ func (s *reactEngineState) executeInternalToolContent(call llm.ToolCall, step in
 		return s.executePythonExec(call.ID, call.Input)
 	case metaToolTodoWrite:
 		return noToolMeta(s.updateTodos(call, step))
-	// 暂时下线 create_plan，保留执行分发代码，后续恢复时取消注释。
-	// case metaToolCreatePlan:
-	// 	return noToolMeta(executeCreatePlan(s.runID, call.ID, call.Input))
+	case metaToolCreatePlan:
+		return noToolMeta(executeCreatePlan(s.sessionID, s.runID, call.Input))
 	case metaToolResolveAsyncTask:
 		return noToolMeta(s.resolveAsyncTask(call.Input))
 	case metaToolGetAsyncTask:

@@ -6,6 +6,8 @@ func (p ExecutionProfile) allowsInternalTool(name string) bool {
 		return true
 	case metaToolTodoWrite:
 		return p.AllowTodo
+	case metaToolCreatePlan:
+		return p.AllowPlan
 	case metaToolGetTool, metaToolExecuteTool, metaToolListTools:
 		return p.AllowDynamicTools
 	case metaToolAskQuestion:

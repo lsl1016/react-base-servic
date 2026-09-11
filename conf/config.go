@@ -56,6 +56,16 @@ type ReactRuntimeConfig struct {
 	Models ReactModelsConfig `yaml:"models"`
 	// PlaygroundWhitelist 是 playground 页面访问白名单；为空时不限制，所有登录用户均可访问。
 	PlaygroundWhitelist []string `yaml:"playground_whitelist"`
+	// AllowPlan 控制 create_plan（计划确认）能力；未配置时默认开启。
+	AllowPlan *bool `yaml:"allow_plan"`
+}
+
+// AllowPlanEnabled 解析 allow_plan 配置：未配置时默认 true。
+func (c ReactRuntimeConfig) AllowPlanEnabled() bool {
+	if c.AllowPlan != nil {
+		return *c.AllowPlan
+	}
+	return true
 }
 
 // ReactModelConfig 描述一个可由前端选择、也可参与自动互备的模型。

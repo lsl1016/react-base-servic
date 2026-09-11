@@ -13,6 +13,8 @@ llm:
       max_completion_tokens: 16384
 
   react:
+    # create_plan（计划确认）能力开关；未配置默认 true。
+    allow_plan: false
     # 请求未传 maxSteps 时的默认最大推理轮次。
     max_steps: 8
     # 单次模型流连续未收到 chunk 的最大秒数；超时后尝试互备模型。

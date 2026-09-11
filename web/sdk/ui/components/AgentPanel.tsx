@@ -657,7 +657,7 @@ export function AgentPanel(props: AgentPanelProps) {
             renderStartBlock={props.renderStartBlock ? renderStartBlock : undefined}
             quickInsertItems={props.quickInsertItems}
             onNextButtonClick={props.readOnly ? undefined : handleNextButtonClick}
-            onPlanConfirm={/* 暂时下线 create_plan；原实现：props.readOnly ? undefined : (planId) => props.client.confirmPlan(planId) */ undefined}
+            onPlanConfirm={props.readOnly ? undefined : (planId) => props.client.confirmPlan(planId)}
             resolveTool={(toolName, frontendHint) => props.client.getRegisteredTool(toolName, frontendHint)}
             onAskQuestionSubmit={props.readOnly ? undefined : handleAskQuestionSubmit}
             activeAskQuestion={props.readOnly ? undefined : activeAskQuestion()}
