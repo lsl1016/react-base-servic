@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # feature/* 分支推送同样触发 CI（长期功能分支保持构建可见）；合并回 main 后可从列表收敛。
+    branches: [main, "feature/**"]
   pull_request:
   workflow_dispatch:
 
