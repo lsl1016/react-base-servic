@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"react-base-service/components/metrics"
 	"react-base-service/golib/zlog"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,7 @@ func accessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
+		metrics.ObserveHTTPRequest(c.Request.Method, normalizedMetricPath(c), c.Writer.Status(), start)
 		if c.GetBool("zlog_no_log") {
 			return
 		}
@@ -43,6 +45,14 @@ func accessLog() gin.HandlerFunc {
 			c.Request.Method, c.Request.URL.RequestURI(), c.Writer.Status(),
 			http.StatusText(c.Writer.Status()), time.Since(start).Round(time.Millisecond), c.ClientIP())
 	}
+}
+
+// normalizedMetricPath 指标标签用路由模板（而非含参数的实际路径），控制标签基数。
+func normalizedMetricPath(c *gin.Context) string {
+	if p := c.FullPath(); p != "" {
+		return p
+	}
+	return "unmatched"
 }
 
 // requestContext 为每个请求生成 logID / requestId，供日志与下游透传使用。

@@ -147,11 +147,14 @@ type MCPConfig struct {
 	Servers   []MCPServerConf `yaml:"servers"`
 }
 
-// MCPServerConf 描述一个 MCP 服务器：kind 选自适配器白名单，env 注入子进程环境变量。
+// MCPServerConf 描述一个 MCP 服务器：kind=repo 选自 stdio 适配器白名单（env 注入子进程）；
+// kind=http 走 Streamable HTTP（endpoint 必填，经 SSRF 校验，拒绝环回/私网/保留地址）。
 type MCPServerConf struct {
-	Name string            `yaml:"name"`
-	Kind string            `yaml:"kind"`
-	Env  map[string]string `yaml:"env"`
+	Name      string            `yaml:"name"`
+	Kind      string            `yaml:"kind"`
+	Env       map[string]string `yaml:"env"`
+	Endpoint  string            `yaml:"endpoint"`
+	TimeoutMs int               `yaml:"timeout_ms"`
 }
 
 // AsyncTaskConfig 控制异步任务状态同步框架。

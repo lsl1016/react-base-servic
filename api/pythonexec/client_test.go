@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"react-base-service/conf"
 
@@ -43,7 +42,7 @@ func TestExecute(t *testing.T) {
 			oldCfg := conf.API.PythonExec
 			conf.API.PythonExec = base.ApiClient{
 				Domain:  server.URL,
-				Timeout: 3 * time.Second,
+				Timeout: "3s",
 			}
 			defer func() {
 				conf.API.PythonExec = oldCfg

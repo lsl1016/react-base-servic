@@ -169,12 +169,24 @@ func RenderJsonAbort(c *gin.Context, err error) {
 	c.AbortWithStatusJSON(http.StatusOK, gin.H{"errNo": code, "errMsg": msg, "data": gin.H{}})
 }
 
-// readyProbes 就绪探针注册表（本地实现仅存储，不自动挂载路由）。
-var readyProbes []func(ctx *gin.Context)
+// readyProbes 就绪探针注册表；/readyz 会执行全部注册探针。
+var readyProbes = map[string]func(ctx context.Context) error{}
 
-// RegReadyProbe 注册就绪探针。
-func RegReadyProbe(probe func(ctx *gin.Context)) {
-	readyProbes = append(readyProbes, probe)
+// RegReadyProbe 兼容历史签名（gin.Context 探针）：仅保留 API，不参与 /readyz 执行。
+func RegReadyProbe(func(ctx *gin.Context)) {}
+
+// RegReadyProbeContext 注册携带 context 的就绪探针，供 /readyz 执行。
+func RegReadyProbeContext(name string, probe func(ctx context.Context) error) {
+	readyProbes[name] = probe
+}
+
+// ReadyProbes 返回已注册的就绪探针快照。
+func ReadyProbes() map[string]func(ctx context.Context) error {
+	out := make(map[string]func(ctx context.Context) error, len(readyProbes))
+	for name, probe := range readyProbes {
+		out[name] = probe
+	}
+	return out
 }
 
 // MysqlConf MySQL 连接配置。

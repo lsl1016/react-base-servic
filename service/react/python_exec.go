@@ -13,6 +13,7 @@ import (
 
 	"react-base-service/api/pythonexec"
 	"react-base-service/components"
+	"react-base-service/components/metrics"
 	"react-base-service/conf"
 	"react-base-service/helpers"
 	model "react-base-service/models/llm"
@@ -151,6 +152,9 @@ func (s *reactEngineState) executePythonExec(toolUseID string, input json.RawMes
 		return "", nil, true, err
 	}
 	if resp.ExitCode != 0 || resp.TimedOut {
+		if resp.TimedOut {
+			metrics.PythonExecTimeoutsTotal.Inc()
+		}
 		// 执行失败时把 exitCode / timedOut / stderr / stdout 打进日志，否则线上排查什么都看不到。
 		zlog.Errorf(s.ctx, "[python_exec] 执行失败: runId=%s, toolUseId=%s, logId=%s, exitCode=%d, timedOut=%t\n--- stderr ---\n%s\n--- stdout ---\n%s",
 			s.runID, toolUseID, logID, resp.ExitCode, resp.TimedOut, resp.Stderr, resp.Stdout)
@@ -398,12 +402,35 @@ func sanitizePythonExecArtifactName(name string) string {
 }
 
 // pythonExecArtifactContentType 解析产物 Content-Type：优先用带 "/" 的完整 MIME；否则按扩展名推断；再兜底二进制流。
+// pythonExecArtifactKnownTypes 内置扩展名优先表：mime.TypeByExtension 依赖系统注册表，
+// Windows 上 .csv 会被映射成 Excel 类型，这里保证产物类型判定跨平台一致。
+var pythonExecArtifactKnownTypes = map[string]string{
+	".csv":  "text/csv",
+	".txt":  "text/plain",
+	".md":   "text/markdown",
+	".json": "application/json",
+	".svg":  "image/svg+xml",
+	".html": "text/html",
+	".htm":  "text/html",
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".pdf":  "application/pdf",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".xls":  "application/vnd.ms-excel",
+	".zip":  "application/zip",
+}
+
 func pythonExecArtifactContentType(artifactType, name string) string {
 	t := strings.TrimSpace(artifactType)
 	if strings.Contains(t, "/") {
 		return t
 	}
 	if ext := strings.ToLower(filepath.Ext(name)); ext != "" {
+		if byExt, ok := pythonExecArtifactKnownTypes[ext]; ok {
+			return byExt
+		}
 		if byExt := mime.TypeByExtension(ext); byExt != "" {
 			return byExt
 		}

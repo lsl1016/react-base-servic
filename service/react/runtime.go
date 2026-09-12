@@ -9,6 +9,7 @@ import (
 
 	llm "react-base-service/api/llm"
 	"react-base-service/components"
+	"react-base-service/components/metrics"
 	"react-base-service/components/params"
 	"react-base-service/components/route"
 	"react-base-service/conf"
@@ -203,9 +204,11 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 	}
 	runCtx, cancel := context.WithCancelCause(components.ContextWithCallerRuntime(parent, req.callerRuntimeContext))
 	registerReactRunCancel(runID, cancel)
+	metrics.RunsActive.Inc()
 	defer func() {
 		cancel(nil)
 		unregisterReactRunCancel(runID)
+		metrics.RunsActive.Dec()
 	}()
 
 	emitter := &runEventEmitter{runID: runID, sessionID: sessionID, write: write}
@@ -214,6 +217,7 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 			err = ErrReactClientDisconnected
 		}
 		if IsReactRunCancelled(err) {
+			metrics.RunsTotal.WithLabelValues("cancelled").Inc()
 			_ = model.UpdateReactRunByRunID(ctx, runID, map[string]any{"state": model.ReactRunStateCancelled})
 			cancelledRun, _ := model.GetReactRunByRunID(ctx, runID)
 			usedTokens, maxTokens := reactContextWindowFields(cancelledRun)
@@ -231,6 +235,7 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 		}
 
 		zlog.Errorf(ctx, "[react.Run] run执行失败: runId=%s, err=%v", runID, err)
+		metrics.RunsTotal.WithLabelValues("error").Inc()
 		_ = model.UpdateReactRunByRunID(ctx, runID, map[string]any{
 			"state":         model.ReactRunStateError,
 			"error_message": errorMessage,
@@ -538,6 +543,7 @@ func createReactSession(ctx *gin.Context, tx *gorm.DB, sessionID string, req *ru
 	if err := model.CreateReactSessionWithDB(ctx, tx, session); err != nil {
 		return "", err
 	}
+	metrics.SessionsCreatedTotal.Inc()
 	return sessionID, nil
 }
 

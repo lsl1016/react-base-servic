@@ -21,11 +21,14 @@ import (
 	"time"
 )
 
-// ServerConfig 描述一个 MCP 服务器的拉起配置：kind 必须命中适配器白名单。
+// ServerConfig 描述一个 MCP 服务器的拉起配置：kind=repo 走 stdio 适配器白名单，
+// kind=http 走 Streamable HTTP（Endpoint 必填，经 SSRF 校验）。
 type ServerConfig struct {
-	Name string            `yaml:"name"`
-	Kind string            `yaml:"kind"`
-	Env  map[string]string `yaml:"env"`
+	Name      string            `yaml:"name"`
+	Kind      string            `yaml:"kind"`
+	Env       map[string]string `yaml:"env"`
+	Endpoint  string            `yaml:"endpoint"`
+	TimeoutMs int               `yaml:"timeout_ms"`
 }
 
 // adapter 是白名单中一个可拉起的 MCP 适配器；command 为固定字面量路径。

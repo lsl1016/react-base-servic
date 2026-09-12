@@ -75,6 +75,15 @@ type gptRequestCapture struct {
 }
 
 func TestGPTClientAppliesModelMaxCompletionTokensCap(t *testing.T) {
+	// 用例自包含：显式注入 model_version_limits 并在结束后恢复，不依赖全局配置加载。
+	oldLimits := conf.CustomConf.LLM.ModelVersionLimits
+	conf.CustomConf.LLM.ModelVersionLimits = map[string]conf.ModelVersionLimit{
+		"deepseek-v3": {MaxCompletionTokens: 16384},
+	}
+	t.Cleanup(func() {
+		conf.CustomConf.LLM.ModelVersionLimits = oldLimits
+	})
+
 	t.Run("chat_stream", func(t *testing.T) {
 		var captured gptRequestCapture
 		server := newGPTCaptureServer(t, &captured)

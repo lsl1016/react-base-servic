@@ -1,3 +1,6 @@
+//go:build integration
+
+// 环境依赖测试：依赖本包 TestMain（react_playground_test.go）初始化的 MySQL 资源。
 package router
 
 import (

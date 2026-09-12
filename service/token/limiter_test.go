@@ -17,7 +17,9 @@ func TestEstimateTokensBasic(t *testing.T) {
 		{name: "empty text", text: "", want: 0},
 		{name: "single chinese rune", text: "你", want: 2},
 		{name: "ascii word", text: "hello", want: 2},
-		{name: "mixed text", text: "hello，你好123", want: 7},
+		// 推导：hello=5×3，全角逗号=default 8，你好=2×10，123=3×3 → 52 units；
+		// +10% 冗余向上取整 → (52*11+9)/10=58 → (58+9)/10=6 tokens。
+		{name: "mixed text", text: "hello，你好123", want: 6},
 	}
 
 	for _, tc := range cases {

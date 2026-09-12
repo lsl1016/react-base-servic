@@ -3,9 +3,9 @@ pprof:
   enable: false
 
 log:
-  level: debug
+  level: info
   stdout: true
-  # 文件落盘与轮转（dir 为空则仅 stdout）
+  # 文件落盘与轮转（写入容器 service_logs 卷）
   dir: "log"
   filename: "app"
   max_size_mb: 100
@@ -13,4 +13,4 @@ log:
   max_backups: 10
 
 server:
-  address: ":8180"
+  address: ":8080"

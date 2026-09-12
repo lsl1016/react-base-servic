@@ -23,6 +23,10 @@ import (
 )
 
 func Http(engine *gin.Engine) {
+	// 健康检查与指标挂根路径，不走业务前缀与中间件（K8s/抓取惯例）。
+	registerHealthRoutes(engine)
+	registerMetricsRoute(engine)
+
 	router := engine.Group("/react-base-service")
 
 	router.Use(m.AddField(zlog.String("globalCustomerNotice", "react-base-service")))

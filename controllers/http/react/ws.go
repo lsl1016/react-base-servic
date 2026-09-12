@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"react-base-service/components"
+	"react-base-service/components/metrics"
 	"react-base-service/components/params"
 	reactService "react-base-service/service/react"
 
@@ -48,7 +49,9 @@ func WS(ctx *gin.Context) {
 		return
 	}
 	logWSDiagnostic(ctx, "connection_open", connectionAttemptID, conn, nil)
+	metrics.WSConnections.Inc()
 	defer func() {
+		metrics.WSConnections.Dec()
 		_ = conn.CloseWithCause("handler_exit")
 		logWSDiagnostic(ctx, "connection_closed", connectionAttemptID, conn, nil)
 	}()

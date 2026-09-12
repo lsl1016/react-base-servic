@@ -9,6 +9,7 @@ import (
 
 	llm "react-base-service/api/llm"
 	"react-base-service/components"
+	"react-base-service/components/metrics"
 	"react-base-service/components/params"
 	"react-base-service/conf"
 
@@ -115,6 +116,7 @@ func (s *reactEngineState) modelAttemptOrder() []reactModelTarget {
 }
 
 func (s *reactEngineState) emitModelFallback(step int, from, to reactModelTarget, reason string, reset bool) error {
+	metrics.ModelFailoversTotal.Inc()
 	emitter := s.emitter
 	if emitter == nil {
 		return nil

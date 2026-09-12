@@ -1,8 +1,10 @@
 package helpers
 
 import (
-	"react-base-service/conf"
+	"context"
+	"errors"
 
+	"react-base-service/conf"
 	"react-base-service/golib/redis"
 )
 
@@ -20,4 +22,12 @@ func InitRedis() {
 
 func CloseRedis() {
 	_ = RedisClient.Close()
+}
+
+// PingRedis 探测 Redis 连接可用性（超时由 ctx 控制）。
+func PingRedis(ctx context.Context) error {
+	if RedisClient == nil {
+		return errors.New("redis client not initialized")
+	}
+	return RedisClient.Ping(ctx)
 }

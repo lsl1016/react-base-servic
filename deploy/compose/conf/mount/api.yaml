@@ -1,0 +1,21 @@
+# 外部 API 连接配置（docker compose 内网地址版）
+llm:
+  # LLM 网关 API Key（按服务分组）；通过 /apikey 接口注册的 caller 级 key 优先
+  api_keys:
+    default: "REPLACE_WITH_LLM_API_KEY"
+  endpoints:
+    claude:
+      api_url: "https://open.bigmodel.cn/api/anthropic"
+      max_tokens: 32768
+    gpt:
+      api_url: "https://open.bigmodel.cn/api/paas/v4"
+      max_tokens: 32768
+
+python_exec:
+  domain: http://sandbox:8190
+  httpStat: false
+  idleConnTimeout: 300s
+  maxIdleConns: 100
+  retry: 1
+  service: python_exec
+  timeout: 120s

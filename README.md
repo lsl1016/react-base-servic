@@ -21,6 +21,21 @@
 
 ## 快速开始
 
+**方式一：Docker Compose 一键起**（推荐试用）
+
+```bash
+# 1. 填入 LLM API key
+vim deploy/compose/conf/mount/api.yaml
+
+# 2. 一键起全套（MySQL 建库 + Redis + python 沙箱 + 服务）
+docker compose up -d --build
+
+# 3. 访问 playground
+open http://127.0.0.1:8080/react-base-service/react/playground
+```
+
+**方式二：本机分步运行**
+
 ```bash
 # 1. 建库（MySQL）
 mysql -h <host> -u root -p < sql/init.sql
@@ -28,7 +43,7 @@ mysql -h <host> -u root -p < sql/init.sql
 # 2. 配置（编辑 conf/mount 下的四个 yaml，替换占位符）
 vim conf/mount/resource.yaml   # MySQL / Redis / COS
 vim conf/mount/api.yaml        # LLM 网关 / python-exec 沙箱
-vim conf/mount/custom.yaml     # 模型目录、ReAct 运行时、服务 token
+vim conf/mount/custom.yaml     # 模型目录、ReAct 运行时
 
 # 3. 构建前端 SDK（playground 页面依赖；不构建则仅 SDK 路由 404）
 cd web/sdk && npm i && npm run build && cd ../..
@@ -39,6 +54,8 @@ cd sandbox && SANDBOX_HOST=127.0.0.1 python server.py && cd ..   # 监听 :8190�
 # 5. 启动
 go run main.go                 # 默认监听 :8080
 ```
+
+**运维端点**：`/healthz`（存活）、`/readyz`（就绪，探测 MySQL/Redis）、`/metrics`（Prometheus 指标：run 数/模型耗时/工具失败率/WS 连接数等）；日志默认落 `log/` 目录并按大小轮转（`config.yaml` 的 `log.*` 可调）。
 
 详细文档：
 

@@ -114,3 +114,17 @@ func (r *Redis) Close() error {
 	}
 	return r.pool.Close()
 }
+
+// Ping 探测连接可用性（带超时控制由 ctx 决定）。
+func (r *Redis) Ping(ctx context.Context) error {
+	if r == nil || r.pool == nil {
+		return errors.New("redis client not initialized")
+	}
+	conn, err := r.pool.GetContext(ctx)
+	if err != nil {
+		return errors.Wrap(err, "redis get conn")
+	}
+	defer conn.Close()
+	_, err = conn.Do("PING")
+	return err
+}

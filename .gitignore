@@ -45,6 +45,7 @@ react-base-service
 /.mimosa/
 /docs/skills/
 /api/pythonexec/log/
+/log/
 /tmp/
 /.gocache/
 /.cache/

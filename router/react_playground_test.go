@@ -1,3 +1,7 @@
+//go:build integration
+
+// 环境依赖测试：需要可用 MySQL（TestMain 会初始化全量资源）。
+// 本地运行：go test -tags integration ./router/...
 package router
 
 import (

@@ -11,6 +11,7 @@ import (
 
 	llm "react-base-service/api/llm"
 	"react-base-service/components"
+	"react-base-service/components/metrics"
 	"react-base-service/components/params"
 	"react-base-service/conf"
 	model "react-base-service/models/llm"
@@ -150,7 +151,9 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 		tools := state.buildToolDefinitions()
 
 		var roundResult modelRoundResult
+		modelRoundStart := time.Now()
 		roundResult, err = state.callModelRound(step, prefixDebugKey, tools)
+		metrics.ModelRoundDuration.WithLabelValues(roundResult.Model.ModelKey + "/" + roundResult.Model.ModelVersion).Observe(time.Since(modelRoundStart).Seconds())
 		streamResult := roundResult.Stream
 		state.logModelRoundResult(step, roundResult.Model, streamResult)
 		if IsReactRunCancelled(err) {
@@ -518,13 +521,34 @@ consume:
 func (s *reactEngineState) executeToolCalls(calls []llm.ToolCall, step int) ([]llm.ToolResultContent, error) {
 	results := make([]llm.ToolResultContent, len(calls))
 	for i, call := range calls {
+		start := time.Now()
 		result, err := s.executeToolCall(call, step)
+		metrics.ObserveToolCall(s.metricToolName(call), start, result.IsError)
 		results[i] = result
 		if err != nil {
 			return results, err
 		}
 	}
 	return results, nil
+}
+
+// metricToolName 解析用于指标标签的工具名：execute_tool 反解入参里的业务工具名，其余用元工具名。
+func (s *reactEngineState) metricToolName(call llm.ToolCall) string {
+	if call.Name == metaToolExecuteTool {
+		var payload struct {
+			Name     string `json:"name"`
+			CallName string `json:"callName"`
+		}
+		if err := json.Unmarshal(call.Input, &payload); err == nil {
+			if payload.CallName != "" {
+				return payload.CallName
+			}
+			if payload.Name != "" {
+				return payload.Name
+			}
+		}
+	}
+	return call.Name
 }
 
 // executeToolCall 执行单个工具调用；保留给非批量路径和后续扩展复用。
@@ -607,6 +631,7 @@ func (s *reactEngineState) executeServerTool(call llm.ToolCall, tool model.Tool,
 
 // finish 收敛 run 的最终状态，更新会话摘要，并向前端发送 done 事件。
 func (s *reactEngineState) finish(content, terminationReason string) error {
+	metrics.RunsTotal.WithLabelValues("finished").Inc()
 	if err := model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{
 		"state":               model.ReactRunStateFinished,
 		"total_input_tokens":  s.inputTokens,

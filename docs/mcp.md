@@ -4,15 +4,19 @@
 
 ## 1. MCP 实现边界
 
-### 1.1 传输：仅 stdio
+### 1.1 传输：stdio + Streamable HTTP（手写 / 官方 SDK 双实现）
 
 | 项 | 现状 |
 |---|---|
-| stdio（子进程 + stdin/stdout JSON-RPC） | ✅ 已实现 |
-| Streamable HTTP（POST JSON-RPC + 可选 SSE） | ❌ 未实现 |
+| stdio（子进程 + stdin/stdout JSON-RPC，`kind: repo`） | ✅ 已实现 |
+| Streamable HTTP 手写版（`kind: http`） | ✅ 已实现 |
+| Streamable HTTP 官方 SDK 版（`kind: http_sdk`，[modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) v1.7.0） | ✅ 已实现 |
 | 旧版 HTTP+SSE 双端点 | ❌ 未实现 |
 
-客户端（`service/mcpclient`）拉起适配器子进程，完成 `initialize` 握手后代理 `tools/list` 与 `tools/call`。单服务器内请求**串行**（与 stdio 服务器的单线程模型一致），并发调用会排队。
+- 三种实现共用同一 `Server` 接口，注册表同步与 `execute_tool` 分发对传输与实现形式无感知；
+- `http` 与 `http_sdk` 的取舍：手写版零依赖、代码量小、行为完全可控；SDK 版协议兼容性由官方保证（版本协商、SSE 解析、会话管理）、支持全部内容类型（图片/音频/资源的占位降级）。二者均无鉴权、均按次会话、均走同一 SSRF 端点校验，配置仅 `kind` 不同，可按远端服务器的协议严格程度选择；
+- 引入 SDK 使项目 Go 版本要求从 1.23 升至 **1.25**（SDK v1.7.0 的最低要求）；
+- stdio 单服务器内请求串行；HTTP **按次会话**（每次操作独立完成 initialize → 操作），无连接池、无状态，代价是每次操作多一次握手往返。
 
 ### 1.2 协议方法覆盖
 
@@ -22,10 +26,11 @@
 
 ### 1.3 安全模型（本机受信环境，无鉴权）
 
-- **适配器白名单**：可执行文件路径是代码内字面量（按 GOOS 固定于 `bin/repo-mcp[.exe]`），配置只能选择 `kind` 与注入环境变量，**不接受任意 command/args**；
-- 无任何身份认证与传输加密（stdio 本机管道），不得将适配器端口或进程暴露给不可信网络；
-- 单次 `tools/call` 默认 60s 超时（可用工具 config 的 `timeout_ms` 覆盖），超时强杀子进程并按错误返回；
-- 子进程 stderr 透传到服务日志；生命周期随服务启停（`router.Tasks` / `StopTasks`）。
+- **stdio（kind=repo）**：可执行文件路径是代码内字面量（按 GOOS 固定于 `bin/repo-mcp[.exe]`），配置只能选择 `kind` 与注入环境变量，**不接受任意 command/args**；
+- **HTTP（kind=http）**：端点经 **SSRF 校验**（构造时与每次建会话前各校验一次）——仅允许 `http/https`，主机为 IP 字面量时直接判定，为域名时解析后逐一判定；**拒绝环回、私网（RFC1918/ULA）、链路本地、组播、未指定、CGNAT、TEST-NET 及其他保留网段**，域名解析出任一非公网地址即拒绝（缓解 DNS 重绑定）；
+- 两种传输均**无任何身份认证**：stdio 是本机管道；HTTP 不发送凭证头，**仅应指向受信的公网端点**，不得将内网 MCP 服务配置进来；
+- 单次 `tools/call` 超时：stdio 默认 60s（工具 config `timeout_ms` 可覆盖）；HTTP 由 server 配置 `timeout_ms`（默认 30s）控制；超时按错误返回；
+- stdio 子进程 stderr 透传到服务日志；stdio 生命周期随服务启停（`router.Tasks` / `StopTasks`），HTTP 无常驻资源。
 
 ### 1.4 工具注册与执行链路
 
@@ -50,9 +55,17 @@ mcp:
   caller_key: demo-app        # 工具挂载的调用方；留空或不配 mcp 段 = 不启用
   servers:
     - name: repo              # 字母/数字/_/-，≤32 字符，用于工具名前缀
-      kind: repo              # 必须命中适配器白名单（当前仅 repo）
+      kind: repo              # stdio 适配器（可执行文件白名单，env 注入子进程）
       env:
-        REPO_ROOT: 'C:/path/to/some/repo'   # 注入子进程的环境变量
+        REPO_ROOT: 'C:/path/to/some/repo'
+    - name: remote1           # Streamable HTTP 手写版（无鉴权，端点须为公网地址）
+      kind: http
+      endpoint: 'https://mcp.example.com/mcp'
+      timeout_ms: 30000       # 可选，默认 30000
+    - name: remote2           # 官方 MCP Go SDK 版（协议兼容性更强）
+      kind: http_sdk
+      endpoint: 'https://mcp2.example.com/mcp'
+      timeout_ms: 30000
 ```
 
 ## 2. 代码仓库检索（`repo` 适配器）能力边界
@@ -87,7 +100,8 @@ mcp:
 | 方向 | 说明 | 预估成本 |
 |---|---|---|
 | git 适配器（`kind: git`） | 启动时按 URL `git clone --depth 1` 到本地缓存（存在则 pull），复用 repotools；私有仓库走 token 环境变量 | ~100 行 |
-| Streamable HTTP 传输 | 远程 MCP 服务器直连（POST JSON-RPC，可选 SSE）；需补 SSRF host 校验（拒绝内网/环回） | ~200 行 |
 | GitHub API 适配器 | `kind: github` 直调 contents/search API，不落本地盘；受 API 限速影响 | ~150 行 |
+| HTTP 鉴权 | 按 server 配置静态凭证头（`Authorization` 等）；当前按需求实现为无鉴权 | ~30 行 |
+| 会话复用 | HTTP 按次会话改「按 server 常驻会话 + 失效重建」；调用次数高频且 initialize 成为瓶颈时再考虑 | ~60 行 |
 
-接入新适配器的步骤：实现工具 → 在 `service/mcpclient` 的 `adapterWhitelist` 注册（可执行路径用字面量）→ 构建到 `bin/` → `custom.yaml` 增加一段 server 配置。
+接入新 stdio 适配器的步骤：实现工具 → 在 `service/mcpclient` 的 `adapterWhitelist` 注册（可执行路径用字面量）→ 构建到 `bin/` → `custom.yaml` 增加一段 server 配置。

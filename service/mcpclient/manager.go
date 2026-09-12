@@ -54,13 +54,23 @@ func orEmptyObject(schema map[string]any) map[string]any {
 	return schema
 }
 
+// Server 是一个 MCP 服务器的统一抽象：stdio（kind=repo）与 HTTP（kind=http）实现同一接口，
+// 注册表同步与 execute_tool 分发对传输形式无感知。
+type Server interface {
+	Name() string
+	Start() error
+	Stop() error
+	ListTools() ([]RegistryTool, error)
+	CallTool(name string, arguments json.RawMessage, timeout time.Duration) (string, error)
+}
+
 // Manager 管理全部配置声明的 MCP 服务器客户端。
 type Manager struct {
 	mu      sync.RWMutex
-	clients map[string]*Client
+	clients map[string]Server
 }
 
-var defaultManager = &Manager{clients: map[string]*Client{}}
+var defaultManager = &Manager{clients: map[string]Server{}}
 
 // Default 返回全局 Manager。
 func Default() *Manager { return defaultManager }
@@ -75,10 +85,12 @@ func Bootstrap(engine *gin.Engine) {
 	}
 
 	for _, serverCfg := range mcpConf.Servers {
-		client, err := NewClient(ServerConfig{
-			Name: serverCfg.Name,
-			Kind: serverCfg.Kind,
-			Env:  serverCfg.Env,
+		client, err := newServer(ServerConfig{
+			Name:      serverCfg.Name,
+			Kind:      serverCfg.Kind,
+			Env:       serverCfg.Env,
+			Endpoint:  serverCfg.Endpoint,
+			TimeoutMs: serverCfg.TimeoutMs,
 		})
 		if err != nil {
 			zlog.Errorf(nil, "[MCP] 服务器配置无效: %v", err)
@@ -99,7 +111,21 @@ func Bootstrap(engine *gin.Engine) {
 	}
 }
 
-// Shutdown 停止全部服务器子进程。
+// newServer 按 kind 构造对应传输的客户端：
+// http=手写 Streamable HTTP；http_sdk=官方 MCP Go SDK 版；其余走 stdio 适配器白名单。
+func newServer(cfg ServerConfig) (Server, error) {
+	kind := strings.ToLower(strings.TrimSpace(cfg.Kind))
+	switch kind {
+	case "http":
+		return NewHTTPClient(strings.TrimSpace(cfg.Name), cfg.Endpoint, cfg.TimeoutMs)
+	case "http_sdk", "sdk":
+		return NewSDKClient(strings.TrimSpace(cfg.Name), cfg.Endpoint, cfg.TimeoutMs)
+	default:
+		return NewClient(cfg)
+	}
+}
+
+// Shutdown 停止全部服务器（stdio 子进程 / HTTP 客户端）。
 func Shutdown() {
 	defaultManager.mu.Lock()
 	defer defaultManager.mu.Unlock()
@@ -108,7 +134,7 @@ func Shutdown() {
 			zlog.Errorf(nil, "[MCP] 停止 %s 失败: %v", name, err)
 		}
 	}
-	defaultManager.clients = map[string]*Client{}
+	defaultManager.clients = map[string]Server{}
 }
 
 // Call 经全局 Manager 调用某服务器上的工具。
@@ -126,7 +152,7 @@ func Call(server, tool string, arguments json.RawMessage, timeout time.Duration)
 // toolId 固定为 mcp_<server>_<tool>，按 toolId 增量更新；routeValues 为 "[]"（空路由通用）。
 func SyncRegistry(callerKey string) error {
 	defaultManager.mu.RLock()
-	clients := make([]*Client, 0, len(defaultManager.clients))
+	clients := make([]Server, 0, len(defaultManager.clients))
 	for _, client := range defaultManager.clients {
 		clients = append(clients, client)
 	}

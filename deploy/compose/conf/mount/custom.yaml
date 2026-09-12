@@ -1,12 +1,11 @@
-# ReAct 基座服务业务配置
+# ReAct 基座服务业务配置（docker compose 版，与 conf/mount/custom.yaml 保持同步）
 llm:
-  # 模型目录：每类模型的默认版本与上下文上限（供 LLM 客户端解析模型能力）
   models:
     claude:
       default_version: "glm-4.6"
       max_context_tokens: 1000000
     gpt:
-      default_version: "gpt-5.2"
+      default_version: "glm-4.6"
       max_context_tokens: 1000000
   model_version_limits:
     "deepseek-v3":
@@ -48,23 +47,6 @@ llm:
       max_read_limit: 32768
     # playground 页面访问白名单；为空时不限制。
     playground_whitelist: []
-
-# MCP 客户端：kind=repo 走 stdio 适配器白名单（可执行文件部署于 bin/，env 注入子进程）；
-# kind=http 走手写 Streamable HTTP；kind=http_sdk 走官方 MCP Go SDK（modelcontextprotocol/go-sdk）实现。
-# HTTP 两种均无鉴权；endpoint 仅允许公网 http/https（拒绝环回/私网/保留地址）；
-# 每次调用独立建会话，timeout_ms 默认 30000。
-# caller_key 是 MCP 工具同步进注册表时挂载的调用方；留空或不配置 mcp 段则不启用。
-mcp:
-  caller_key: demo-app
-  servers:
-    - name: repo
-      kind: repo
-      env:
-        REPO_ROOT: 'C:/Users/keke/Desktop/xm/react-base-service'
-    # - name: remote
-    #   kind: http_sdk            # 或 http（手写版）
-    #   endpoint: 'https://mcp.example.com/mcp'
-    #   timeout_ms: 30000
 
 async_task:
   # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转

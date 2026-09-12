@@ -1,0 +1,88 @@
+# react-base-service 一键本地环境
+#
+# 使用：
+#   1. 在 deploy/compose/conf/mount/api.yaml 填入 LLM API key
+#   2. docker compose up -d --build
+#   3. 访问 http://127.0.0.1:8080/react-base-service/react/playground
+#
+# 说明：
+# - mysql/redis 使用本地已有镜像（mysql:8.0 / redis:7-alpine）；
+# - sandbox 由 ./sandbox/Dockerfile 构建（基础镜像 python:3.11-slim，若本地缺失会触发一次拉取）；
+# - MySQL 首次启动自动执行 sql/init.sql 建库；
+# - 服务配置挂载 deploy/compose/conf/mount（容器内网地址），与本机开发的 conf/mount 互不干扰。
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: react-base-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: llm
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: react-base-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sandbox:
+    build:
+      context: ./sandbox
+    container_name: react-base-sandbox
+    # 强隔离：非 root + 只读根文件系统 + tmpfs 工作区 + 资源限额
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=128m
+    mem_limit: 1g
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8190/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  service:
+    build:
+      context: .
+    container_name: react-base-service
+    # MySQL 首次初始化存在 healthy 后短暂重启的窗口，连接失败自动重试自愈
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sandbox:
+        condition: service_started
+    ports:
+      - "${SERVICE_HOST_PORT:-8080}:8080"
+    volumes:
+      # 容器 WORKDIR 为 /usr/local/bin，配置按相对路径 conf/mount 读取
+      - ./deploy/compose/conf/mount:/usr/local/bin/conf/mount:ro
+      - service_logs:/usr/local/bin/log
+      - service_data:/usr/local/bin/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  mysql_data:
+  service_logs:
+  service_data:

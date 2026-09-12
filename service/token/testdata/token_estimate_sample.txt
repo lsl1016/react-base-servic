@@ -1,0 +1,4 @@
+这是一份用于 token 估算测试的样例文本。
+This is a sample text used by the token estimation test.
+它包含中英文混排、数字 12345、以及标点符号——用于验证 EstimateTokens 在不同字符集下的表现。
+The file exists so the local-file estimation test can run without any external dependency.

@@ -1,13 +1,16 @@
-FROM node:20.13.1-slim AS sdk-builder
+FROM node:22-alpine AS sdk-builder
 
 WORKDIR /apps/web/sdk/
 
-COPY web/sdk/package.json  ./
-RUN npm i
+COPY web/sdk/package.json web/sdk/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY web/sdk/ ./
 RUN npm run build
 
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
+
+# 国内网络环境使用公共 Go 模块代理；如无需代理可删除此行
+ENV GOPROXY=https://goproxy.cn,direct
 
 ARG APP_NAME
 ENV APP_NAME=$APP_NAME
