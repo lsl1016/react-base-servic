@@ -203,6 +203,7 @@ func (s *reactEngineState) buildSubAgentRuntimeRequest(agent model.Agent, task, 
 	base.toolsIndexSnapshotJSON = filterToolIndexSnapshot(base.toolsIndexSnapshotJSON, parseAgentStringList(agent.ToolsJSON))
 	base.skillsIndexSnapshotJSON = filterSkillIndexSnapshot(base.skillsIndexSnapshotJSON, parseAgentStringList(agent.SkillsJSON))
 	base.memoryContext = ""
+	base.graphMemoryContext = ""
 	base.modelUserMessage = llm.ChatMessage{Role: model.ReactMessageRoleUser, Content: taskContent}
 	base.todoStateJSON = ""
 	base.prevActiveToolIDsJSON = ""
@@ -218,7 +219,7 @@ func (s *reactEngineState) buildSubAgentRuntimeRequest(agent model.Agent, task, 
 	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
 	profile := executionProfileForRun(base)
 	initialTools := runtimeToolDefinitions(base, profile)
-	initialSystemContent := buildReactSystemContent(base.systemPrompt, renderToolIndexSummary(base.toolsIndexSnapshotJSON), renderSkillIndexSummary(base.skillsIndexSnapshotJSON), base.memoryContext)
+	initialSystemContent := buildReactSystemContent(base.systemPrompt, renderToolIndexSummary(base.toolsIndexSnapshotJSON), renderSkillIndexSummary(base.skillsIndexSnapshotJSON), base.memoryContext, base.graphMemoryContext)
 	if err := checkEntryInputTokens(initialSystemContent, base.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
 		return nil, "", err
 	}

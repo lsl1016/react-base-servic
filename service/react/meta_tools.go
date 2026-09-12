@@ -44,12 +44,15 @@ const (
 	metaToolMemoryList  = "memory_list"
 	metaToolMemoryRead  = "memory_read"
 	metaToolMemoryWrite = "memory_write"
+	// 时序事实图谱记忆工具：graph_memory.enabled 开启时注册（见 graph_memory.go）。
+	metaToolGraphMemorySearch = "graph_memory_search"
+	metaToolGraphMemoryWrite  = "graph_memory_write"
 )
 
 // isInternalMetaTool 判断工具名是否属于 Runtime 内置 Meta Tool，内置工具不走外部工具注册表。
 func isInternalMetaTool(name string) bool {
 	switch name {
-	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolDelegateAgent, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite:
+	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolDelegateAgent, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite, metaToolGraphMemorySearch, metaToolGraphMemoryWrite:
 		return true
 	default:
 		return false
@@ -82,6 +85,10 @@ func internalMetaToolDefinitions() []llm.ToolDefinition {
 	// memory.enabled=true 时注册长期记忆三工具（list/read/write），关闭时模型不可见。
 	if conf.CustomConf.LLM.React.Memory.MemoryEnabled() {
 		definitions = append(definitions, memoryToolDefinitions()...)
+	}
+	// graph_memory.enabled=true 时注册时序图谱记忆工具（search + 可选 write），关闭时模型不可见。
+	if conf.CustomConf.LLM.React.GraphMemory.GraphMemoryEnabled() {
+		definitions = append(definitions, graphMemoryToolDefinitions()...)
 	}
 	return definitions
 }
@@ -366,6 +373,10 @@ func (s *reactEngineState) executeInternalToolContent(call llm.ToolCall, step in
 		return noToolMeta(s.executeMemoryRead(call.Input))
 	case metaToolMemoryWrite:
 		return noToolMeta(s.executeMemoryWrite(call.Input))
+	case metaToolGraphMemorySearch:
+		return noToolMeta(s.executeGraphMemorySearch(call.Input))
+	case metaToolGraphMemoryWrite:
+		return noToolMeta(s.executeGraphMemoryWrite(call.Input))
 	default:
 		return "", nil, true, fmt.Errorf("unknown internal meta tool: %s", call.Name)
 	}

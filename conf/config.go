@@ -50,6 +50,10 @@ const (
 	defaultReactSubAgentMaxParallel         = 1
 	defaultReactSubAgentMaxSteps            = 8
 	defaultReactSubAgentMaxDepth            = 2
+	defaultReactGraphMemoryTimeoutMs        = 15000
+	defaultReactGraphMemoryInjectMaxFacts   = 8
+	defaultReactGraphMemoryInjectMaxChars   = 1200
+	defaultReactGraphMemoryInjectTimeoutMs  = 1500
 )
 
 // ReactRuntimeConfig ReAct 运行时配置，只承载线上需要按模型和成本调整的策略参数。
@@ -73,6 +77,9 @@ type ReactRuntimeConfig struct {
 	// SubAgent 控制子 Agent 委派能力（delegate_agent）；未配置时默认关闭，
 	// 行为与历史版本一致（不注册 delegate_agent、不解析 agent 资源）。
 	SubAgent ReactSubAgentConfig `yaml:"subagent"`
+	// GraphMemory 控制时序事实图谱记忆（Graphiti，Layer2 长期记忆）；未配置时默认关闭。
+	// 依赖外部 Graphiti REST 服务，设计见 docs/知识库与长期记忆集成改造方案.md §4。
+	GraphMemory ReactGraphMemoryConfig `yaml:"graph_memory"`
 }
 
 // ReactSubAgentConfig 子 Agent 委派配置：主 Agent 经 delegate_agent 把子任务派给
@@ -159,6 +166,72 @@ func (c ReactMemoryConfig) MemoryAllowUserScope() bool {
 		return *c.AllowUserScope
 	}
 	return true
+}
+
+// ReactGraphMemoryConfig 时序事实图谱记忆（Graphiti）配置。GroupID 由服务端按 run
+// 作用域强制注入，绝不暴露给模型入参（防跨组越权读写）。
+type ReactGraphMemoryConfig struct {
+	// Enabled 是总开关；未配置时默认 false（不注册工具、不注入）。
+	Enabled *bool `yaml:"enabled"`
+	// Endpoint 是 Graphiti REST 服务地址（graphiti/server/graph_service）。
+	Endpoint string `yaml:"endpoint"`
+	// TimeoutMs 是工具调用（检索/写入）的单次请求超时。
+	TimeoutMs int `yaml:"timeout_ms"`
+	// GroupScope 是图谱分区作用域：caller（同 caller 共享一张图）或 caller_user（按用户分区）；默认 caller_user。
+	GroupScope string `yaml:"group_scope"`
+	// Inject 控制运行启动时的相关事实注入块（<graph_memory>）。
+	Inject ReactGraphMemoryInjectConfig `yaml:"inject"`
+	// Write 控制模型侧写入工具（graph_memory_write）。
+	Write ReactGraphMemoryWriteConfig `yaml:"write"`
+}
+
+// ReactGraphMemoryInjectConfig 控制 <graph_memory> 注入：按本次用户输入检索相关事实，
+// 有则注入、空/失败/超时静默跳过（注入是增强不是依赖）。
+type ReactGraphMemoryInjectConfig struct {
+	// Enabled 控制是否注入；未配置时默认 true（总开关开启时生效）。
+	Enabled *bool `yaml:"enabled"`
+	// MaxFacts 是单次注入的事实条数上限。
+	MaxFacts int `yaml:"max_facts"`
+	// MaxChars 是注入块字符预算，超出截断。
+	MaxChars int `yaml:"max_chars"`
+	// TimeoutMs 是注入检索的超时预算；超时放弃注入，不阻塞 run 启动主链路。
+	TimeoutMs int `yaml:"timeout_ms"`
+}
+
+// ReactGraphMemoryWriteConfig 控制模型侧写入（W1 显式沉淀工具）。
+// 会话收敛自动回灌（W2，on_run_finish）按改造方案 P3 后续落地。
+type ReactGraphMemoryWriteConfig struct {
+	// Enabled 控制是否注册 graph_memory_write 工具；未配置时默认 false（灰度）。
+	Enabled *bool `yaml:"enabled"`
+}
+
+// InjectEnabled 解析 inject.enabled：未配置时默认 true。
+func (c ReactGraphMemoryInjectConfig) InjectEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return true
+}
+
+// WriteEnabled 解析 write.enabled：未配置时默认 false。
+func (c ReactGraphMemoryWriteConfig) WriteEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
+}
+
+// GraphMemoryEnabled 解析 graph_memory.enabled：未配置时默认 false。
+func (c ReactGraphMemoryConfig) GraphMemoryEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
+}
+
+// GraphMemoryUserScope 解析 group_scope 是否为 caller_user 维度；未配置或非法值默认 true。
+func (c ReactGraphMemoryConfig) GraphMemoryUserScope() bool {
+	return c.GroupScope != "caller"
 }
 
 // ReactModelConfig 描述一个可由前端选择、也可参与自动互备的模型。
@@ -426,6 +499,24 @@ func GetReactRuntimeConfig() ReactRuntimeConfig {
 		subAgent.MaxDepth = defaultReactSubAgentMaxDepth
 	}
 	cfg.SubAgent = subAgent
+
+	graphMemory := cfg.GraphMemory
+	if graphMemory.TimeoutMs <= 0 {
+		graphMemory.TimeoutMs = defaultReactGraphMemoryTimeoutMs
+	}
+	inject := graphMemory.Inject
+	if inject.MaxFacts <= 0 {
+		inject.MaxFacts = defaultReactGraphMemoryInjectMaxFacts
+	}
+	if inject.MaxChars <= 0 {
+		inject.MaxChars = defaultReactGraphMemoryInjectMaxChars
+	}
+	if inject.TimeoutMs <= 0 {
+		inject.TimeoutMs = defaultReactGraphMemoryInjectTimeoutMs
+	}
+	graphMemory.Inject = inject
+	graphMemory.Endpoint = strings.TrimRight(strings.TrimSpace(graphMemory.Endpoint), "/")
+	cfg.GraphMemory = graphMemory
 
 	models := cfg.Models
 	available := make([]ReactModelConfig, 0, len(models.Available))

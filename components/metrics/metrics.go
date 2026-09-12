@@ -100,4 +100,22 @@ var (
 		Name: "react_memory_reflection_total",
 		Help: "Total memory reflection runs by status.",
 	}, []string{"status"})
+
+	// GraphMemorySearchTotal 时序图谱检索计数（status: ok/error；工具调用与注入块共用）。
+	GraphMemorySearchTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "react_graph_memory_search_total",
+		Help: "Total graph memory searches by status.",
+	}, []string{"status"})
+
+	// GraphMemoryInjectFacts 注入块渲染的事实条数水位（含 0=未命中，观测注入命中情况）。
+	GraphMemoryInjectFacts = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "react_graph_memory_inject_facts",
+		Help: "Facts rendered into the graph memory injection block.",
+	}, []string{"status"})
+
+	// GraphMemoryEpisodeTotal episode 写入计数（status: ok/error；含模型显式写入）。
+	GraphMemoryEpisodeTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "react_graph_memory_episode_total",
+		Help: "Total graph memory episodes written by status.",
+	}, []string{"status"})
 )

@@ -61,6 +61,22 @@ llm:
         cooldown_minutes: 60
         max_writes_per_run: 20
         transcript_char_limit: 16000
+    # 时序事实图谱记忆（Graphiti，Layer2）：读写均走宿主机上的 Graphiti REST 服务。
+    # group_id 由服务端按 caller(+user) 强制生成（不含连字符，FalkorDB 全文检索兼容）。
+    graph_memory:
+      enabled: true
+      endpoint: 'http://host.docker.internal:8010'
+      timeout_ms: 15000
+      group_scope: caller_user
+      inject:
+        enabled: true
+        max_facts: 8
+        max_chars: 1200
+        # Graphiti /search 实测 1.3~1.6s（含查询向量经网关嵌入），预算放宽到 4s；
+        # 超时仍静默跳过注入，不影响 run 启动。
+        timeout_ms: 4000
+      write:
+        enabled: true
 
 async_task:
   # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转

@@ -64,6 +64,9 @@ type runtimeRequest struct {
 	// memoryContext 是长期记忆注入块（<memory>...</memory>），memory.enabled 时在 prepareRuntimeRequest 装配；
 	// 每次 run 初始化重新解析，保证上一个 run 的写入对后续轮次立即可见。
 	memoryContext string
+	// graphMemoryContext 是时序图谱记忆注入块（<graph_memory>...</graph_memory>），graph_memory.enabled
+	// 且 inject.enabled 时按本次用户输入检索装配；检索失败/超时/空结果为空串（不注入）。
+	graphMemoryContext string
 	// agents 是 caller 可见的子 Agent 清单（subagent.enabled 时装配），
 	// 用于 delegate_agent 工具描述动态渲染与委派解析。
 	agents []model.Agent
@@ -214,7 +217,7 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 	}
 	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
 	initialTools := runtimeToolDefinitions(req, executionProfileForRun(req))
-	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext)
+	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext, req.graphMemoryContext)
 	if err := checkEntryInputTokens(initialSystemContent, req.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
 		return nil, err
 	}
@@ -466,6 +469,13 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 		}
 	}
 
+	// 时序图谱记忆注入块：graph_memory.enabled 且 inject.enabled 时按本次用户输入检索相关事实。
+	// 检索失败/超时/空结果静默跳过（注入是增强不是依赖），失败绝不阻断 run 启动。
+	var graphMemoryContext string
+	if graphCfg := conf.CustomConf.LLM.React.GraphMemory; graphCfg.GraphMemoryEnabled() && graphCfg.Inject.InjectEnabled() {
+		graphMemoryContext = buildGraphMemoryContextForRun(ctx, payload.CallerKey, userName, payload.UserPrompt)
+	}
+
 	payload.RouteValues = routeValues
 	attachments, err := prepareReactAttachments(ctx, payload.Attachments, userName)
 	if err != nil {
@@ -484,6 +494,7 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 		skillsIndexSnapshotJSON: skillsIndexSnapshotJSON,
 		toolsIndexSnapshotJSON:  toolsIndexSnapshotJSON,
 		memoryContext:           memoryContext,
+		graphMemoryContext:      graphMemoryContext,
 		agents:                  agents,
 		routeValuesJSON:         string(routeValuesBytes),
 		modelUserMessage:        modelUserMessage,
@@ -620,7 +631,7 @@ func persistUserInput(ctx *gin.Context, tx *gorm.DB, req *runtimeRequest, runID,
 // buildInitialMessages 组装当前 run 的 system/user 消息；llmContext 绑定到对应 user 消息，Skill 摘要合并到 system 前缀。
 func buildInitialMessages(req *runtimeRequest) []llm.LLMMessage {
 	var messages []llm.LLMMessage
-	if systemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext); systemContent != "" {
+	if systemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext, req.graphMemoryContext); systemContent != "" {
 		messages = append(messages, llm.LLMMessage{Role: model.ReactMessageRoleSystem, Content: systemContent})
 	}
 	messages = append(messages, llm.LLMMessage{Role: req.modelUserMessage.Role, Content: req.modelUserMessage.Content})

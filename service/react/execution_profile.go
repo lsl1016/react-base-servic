@@ -13,6 +13,9 @@ type ExecutionProfile struct {
 	AllowAsyncTaskTools bool
 	AllowSkills         bool
 	AllowMemory         bool
+	// AllowGraphMemory 控制 graph_memory_search/graph_memory_write（时序图谱记忆）工具；
+	// 外层与子 run 跟随 graph_memory.enabled 配置，reflection 等受限执行域恒关闭。
+	AllowGraphMemory bool
 	// AllowSubagent 控制 delegate_agent（子 Agent 委派）工具；外层 run 跟随 subagent.enabled 配置，
 	// reflection 等受限执行域恒关闭。
 	AllowSubagent bool
@@ -33,6 +36,7 @@ func outerExecutionProfile() ExecutionProfile {
 		AllowAsyncTaskTools:     true,
 		AllowSkills:             true,
 		AllowMemory:             conf.CustomConf.LLM.React.Memory.MemoryEnabled(),
+		AllowGraphMemory:        conf.CustomConf.LLM.React.GraphMemory.GraphMemoryEnabled(),
 		AllowSubagent:           conf.CustomConf.LLM.React.SubAgent.SubAgentEnabled(),
 		AllowAnalysisTools:      true,
 		InjectAsyncTaskReminder: true,

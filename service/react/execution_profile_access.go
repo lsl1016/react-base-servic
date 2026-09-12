@@ -20,6 +20,8 @@ func (p ExecutionProfile) allowsInternalTool(name string) bool {
 		return p.AllowSkills
 	case metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite:
 		return p.AllowMemory
+	case metaToolGraphMemorySearch, metaToolGraphMemoryWrite:
+		return p.AllowGraphMemory
 	default:
 		return false
 	}
