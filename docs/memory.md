@@ -1,6 +1,8 @@
 # 长期记忆模块设计（Long-Term Memory）
 
-> 状态：设计稿（feature/memory 分支）
+> 状态：P1 基础闭环已实现（feature/memory 分支）——建表 DDL、模型层、常驻+目录注入、
+> memory_list/memory_read/memory_write 三工具、`llm.react.memory` 配置开关与单元测试；
+> P2（管理面/审计接口）、P3（reflection）、P4（向量检索）待实施。
 > 目标：为 ReAct 基座补上**跨会话长期记忆**能力——会话结束时沉淀事实与偏好，新会话开始时按需注入，并由后台整理任务持续维护。
 >
 > 设计蓝本：Letta Code 的 MemFS 记忆系统（`C:\Users\keke\Desktop\xm\letta-code\docs\memory-system-design.md`，
@@ -184,13 +186,18 @@ run 初始化时按 **caller_user → caller** 两级合并解析（caller 级�
   "parameters": {
     "action":  "create | update | delete",
     "itemId":  "update/delete 必填",
+    "version": "update 时读取到的版本号（乐观锁），不传则直接覆盖",
     "layer":   "resident | detached，create 默认 detached；常驻层写入加倍审慎",
     "title":   "create/update 必填，≤32 字",
     "content": "create/update 必填，一到三句原子事实",
-    "description": "create/update 必填：什么场景需要想起这条记忆",
+    "retrievalHint": "create/update 必填：什么场景需要想起这条记忆",
     "tags":    "可选，逗号分隔",
     "reason":  "必填：为什么写入/修改/删除" } }
 ```
+
+> 字段命名说明：检索描述用 `retrievalHint` 而非 `description`——运行时会剥离工具入参顶层的
+> `description`（内置工具的调用展示字段，见 `executeInternalTool` 的 `stripToolDescriptionInput`），
+> 同名字段会被误删。
 
 行为：
 

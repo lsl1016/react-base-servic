@@ -37,12 +37,16 @@ const (
 	metaToolInspectAttachment = "inspect_attachment"
 	// metaToolCreatePlan 提交分步执行计划，等待用户在前端确认后执行（第一期：确认交互闭环）。
 	metaToolCreatePlan = "create_plan"
+	// 长期记忆三工具：memory.enabled 开启时注册（见 memory.go）。
+	metaToolMemoryList  = "memory_list"
+	metaToolMemoryRead  = "memory_read"
+	metaToolMemoryWrite = "memory_write"
 )
 
 // isInternalMetaTool 判断工具名是否属于 Runtime 内置 Meta Tool，内置工具不走外部工具注册表。
 func isInternalMetaTool(name string) bool {
 	switch name {
-	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan:
+	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite:
 		return true
 	default:
 		return false
@@ -71,6 +75,10 @@ func internalMetaToolDefinitions() []llm.ToolDefinition {
 	}
 	if conf.CustomConf.LLM.React.AllowPlanEnabled() {
 		definitions = append(definitions, createPlanToolDefinition())
+	}
+	// memory.enabled=true 时注册长期记忆三工具（list/read/write），关闭时模型不可见。
+	if conf.CustomConf.LLM.React.Memory.MemoryEnabled() {
+		definitions = append(definitions, memoryToolDefinitions()...)
 	}
 	return definitions
 }
@@ -337,6 +345,12 @@ func (s *reactEngineState) executeInternalToolContent(call llm.ToolCall, step in
 		return noToolMeta(s.readAttachment(call.Input))
 	case metaToolInspectAttachment:
 		return noToolMeta(s.inspectAttachment(call.Input))
+	case metaToolMemoryList:
+		return noToolMeta(s.executeMemoryList(call.Input))
+	case metaToolMemoryRead:
+		return noToolMeta(s.executeMemoryRead(call.Input))
+	case metaToolMemoryWrite:
+		return noToolMeta(s.executeMemoryWrite(call.Input))
 	default:
 		return "", nil, true, fmt.Errorf("unknown internal meta tool: %s", call.Name)
 	}

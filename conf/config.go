@@ -40,6 +40,10 @@ const (
 	defaultReactToolResultDBMaxBytes        = 16 * 1024 * 1024
 	defaultReactToolResultReadLimit         = 8192
 	defaultReactToolResultMaxReadLimit      = 32768
+	defaultReactMemoryResidentMaxItems      = 16
+	defaultReactMemoryResidentBudgetChars   = 2000
+	defaultReactMemoryIndexMaxItems         = 64
+	defaultReactMemoryDetachedMaxItems      = 500
 )
 
 // ReactRuntimeConfig ReAct 运行时配置，只承载线上需要按模型和成本调整的策略参数。
@@ -58,12 +62,48 @@ type ReactRuntimeConfig struct {
 	PlaygroundWhitelist []string `yaml:"playground_whitelist"`
 	// AllowPlan 控制 create_plan（计划确认）能力；未配置时默认开启。
 	AllowPlan *bool `yaml:"allow_plan"`
+	// Memory 控制长期记忆（跨会话记忆）能力；未配置时默认关闭。
+	Memory ReactMemoryConfig `yaml:"memory"`
 }
 
 // AllowPlanEnabled 解析 allow_plan 配置：未配置时默认 true。
 func (c ReactRuntimeConfig) AllowPlanEnabled() bool {
 	if c.AllowPlan != nil {
 		return *c.AllowPlan
+	}
+	return true
+}
+
+// ReactMemoryConfig 长期记忆配置：常驻层注入预算、目录上限、按需层软上限与作用域开关。
+type ReactMemoryConfig struct {
+	// Enabled 控制长期记忆总开关；未配置时默认 false（不注入、不注册工具），
+	// 显式开启前需先执行 tblLlmMemoryItem/tblLlmMemoryRevision 建表。
+	Enabled *bool `yaml:"enabled"`
+	// ResidentMaxItems 是单个记忆空间常驻层的条数上限。
+	ResidentMaxItems int `yaml:"resident_max_items"`
+	// ResidentBudgetChars 是常驻层注入 system 前缀的字符预算，超出按更新时间截断。
+	ResidentBudgetChars int `yaml:"resident_budget_chars"`
+	// IndexMaxItems 是按需层目录索引注入的最大条数。
+	IndexMaxItems int `yaml:"index_max_items"`
+	// DetachedMaxItems 是单个记忆空间按需层 active 条目软上限，超出拒绝新增。
+	DetachedMaxItems int `yaml:"detached_max_items"`
+	// AllowUserScope 控制是否启用 caller_user 维度记忆；未配置时默认 true。
+	// false 时全部记忆收敛到 caller 维度（同 caller 用户共享）。
+	AllowUserScope *bool `yaml:"allow_user_scope"`
+}
+
+// MemoryEnabled 解析 memory.enabled：未配置时默认 false。
+func (c ReactMemoryConfig) MemoryEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
+}
+
+// MemoryAllowUserScope 解析 memory.allow_user_scope：未配置时默认 true。
+func (c ReactMemoryConfig) MemoryAllowUserScope() bool {
+	if c.AllowUserScope != nil {
+		return *c.AllowUserScope
 	}
 	return true
 }
@@ -295,6 +335,21 @@ func GetReactRuntimeConfig() ReactRuntimeConfig {
 		toolResult.MaxReadLimit = toolResult.ReadLimit
 	}
 	cfg.ToolResult = toolResult
+
+	memory := cfg.Memory
+	if memory.ResidentMaxItems <= 0 {
+		memory.ResidentMaxItems = defaultReactMemoryResidentMaxItems
+	}
+	if memory.ResidentBudgetChars <= 0 {
+		memory.ResidentBudgetChars = defaultReactMemoryResidentBudgetChars
+	}
+	if memory.IndexMaxItems <= 0 {
+		memory.IndexMaxItems = defaultReactMemoryIndexMaxItems
+	}
+	if memory.DetachedMaxItems <= 0 {
+		memory.DetachedMaxItems = defaultReactMemoryDetachedMaxItems
+	}
+	cfg.Memory = memory
 
 	models := cfg.Models
 	available := make([]ReactModelConfig, 0, len(models.Available))
