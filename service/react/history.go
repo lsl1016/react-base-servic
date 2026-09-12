@@ -116,12 +116,14 @@ type historyEventBuilder struct {
 	sessionID                  string
 	seq                        int
 	runByID                    map[string]model.ReactRun
+	runs                       []model.ReactRun
 	resultByToolUse            map[string]NormalizedToolResult
 	toolMetaByUse              map[string]json.RawMessage
 	toolNameByUse              map[string]string
 	toolDisplayNameByRunToolID map[string]map[string]string
 	messages                   []model.ReactMessage
 	currentRunID               string
+	runHasMessages             map[string]bool
 	closedRunTerminal          map[string]bool
 	contextMessages            []llm.ChatMessage
 	contextMessageRefs         [][]reactMessageRef
@@ -139,11 +141,13 @@ func newHistoryEventBuilder(sessionID string, runs []model.ReactRun, messages []
 	builder := &historyEventBuilder{
 		sessionID:                  sessionID,
 		runByID:                    runByID,
+		runs:                       runs,
 		resultByToolUse:            make(map[string]NormalizedToolResult),
 		toolMetaByUse:              make(map[string]json.RawMessage),
 		toolNameByUse:              make(map[string]string),
 		toolDisplayNameByRunToolID: toolDisplayNameByRunToolID,
 		messages:                   messages,
+		runHasMessages:             make(map[string]bool),
 		closedRunTerminal:          make(map[string]bool),
 		contextUsedTokensByRunID:   make(map[string]int),
 	}
@@ -153,10 +157,19 @@ func newHistoryEventBuilder(sessionID string, runs []model.ReactRun, messages []
 }
 
 // Build 按消息落库顺序合成历史事件；seq 为历史接口内的稳定递增序号，不承诺等于实时 WebSocket seq。
+// delegate_agent 子 run 的消息按真实时间线混排在父 run 消息之间，事件带 agentPath 供前端分卡片渲染。
 func (b *historyEventBuilder) Build() []params.ReactHistoryEvent {
 	for _, message := range b.messages {
+		if message.RunID != "" {
+			b.runHasMessages[message.RunID] = true
+		}
 		if b.currentRunID != "" && message.RunID != "" && message.RunID != b.currentRunID {
-			b.appendRunTerminal(b.currentRunID)
+			// 只有进入当前 run 的子 run 时才不提前收敛父 run：委派结束后父 run 还会继续产生消息，
+			// 父终态事件必须落在其全部消息之后；离开子 run（回父/切兄弟子 run）照常收敛子 run。
+			next, nextOK := b.runByID[message.RunID]
+			if !(nextOK && next.ParentRunID == b.currentRunID) {
+				b.appendRunTerminal(b.currentRunID)
+			}
 		}
 		if message.RunID != "" {
 			b.currentRunID = message.RunID
@@ -167,10 +180,20 @@ func (b *historyEventBuilder) Build() []params.ReactHistoryEvent {
 	if b.currentRunID != "" {
 		b.appendRunTerminal(b.currentRunID)
 	}
+	// 兜底收敛：父 run 在子 run 之后中断（error/cancelled）时，切换逻辑不会触发其终态，此处统一补齐。
+	for _, run := range b.runs {
+		if b.runHasMessages[run.RunID] && !b.closedRunTerminal[run.RunID] {
+			b.appendRunTerminal(run.RunID)
+		}
+	}
 	return b.events
 }
 
 func (b *historyEventBuilder) trackContextUsage(message model.ReactMessage) {
+	// 子 run 消息不进入外层 run 的 LLM 历史（引擎侧已按外层 run 过滤），估算口径保持一致。
+	if run, ok := b.runByID[message.RunID]; ok && run.ParentRunID != "" {
+		return
+	}
 	chatMessage, ok := reactMessageToChatMessage(message)
 	if !ok || strings.TrimSpace(message.RunID) == "" {
 		return
@@ -559,9 +582,18 @@ func (b *historyEventBuilder) appendEventWithStep(stepIndex *int, eventType, run
 		RunID:     runID,
 		SessionID: b.sessionID,
 		StepIndex: stepIndex,
+		AgentPath: b.agentPathForRun(runID),
 		Payload:   payload,
 		CreatedAt: formatHistoryTime(createdAt),
 	})
+}
+
+// agentPathForRun 从 run 行读取事件归属路径：外层 run 为空（前端按 main 渲染），子 run 形如 main/ops-agent。
+func (b *historyEventBuilder) agentPathForRun(runID string) string {
+	if run, ok := b.runByID[runID]; ok {
+		return run.AgentPath
+	}
+	return ""
 }
 
 func (b *historyEventBuilder) indexToolCalls(messages []model.ReactMessage) {

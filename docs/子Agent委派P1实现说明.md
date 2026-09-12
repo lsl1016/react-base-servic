@@ -1,0 +1,93 @@
+# 子 Agent 委派 P1 实现说明
+
+> 依据：[服务端AI工作台改造方案.md](./服务端AI工作台改造方案.md) §4.1（P1：子 Agent 资源化与委派）。
+> 本文记录 P1 的实际落点、语义约定与验收路径，供接入方与前端联调参考。
+
+## 1. 已交付能力
+
+| 能力 | 落点 |
+|---|---|
+| Agent 注册类资源（表 + CRUD + Markdown 导入） | `models/llm/agent.go`、`service/agent/`、`controllers/http/agent/`、`sql/init.sql`（tblLlmAgent） |
+| delegate_agent Meta Tool（描述动态渲染子代理清单） | `service/react/meta_tools.go::runtimeToolDefinitions` + `service/react/delegate.go::delegateAgentToolDefinition` |
+| 隔离子 run 执行（独立历史/步数/模型/工具集） | `service/react/delegate.go::executeDelegateAgent / buildSubAgentRuntimeRequest` |
+| 事件归属标识 agentPath（实时 + 回放同形） | `params.ReactEvent/ReactHistoryEvent.AgentPath`、`runEventEmitter.agentPath`、`history.go` 回放 |
+| run 表父子关系 | `tblLlmReactRun.parent_run_id / agent_path`（init.sql 含存量 ALTER 语句） |
+| 嵌套 HITL（子 run ask_question / client tool 冒泡） | 子 run 共享父 `readClient`；父循环阻塞在委派工具执行中，上行消息天然路由到子 run |
+| 取消级联 | 子 runCtx 从父 runCtx 派生（`WithCancelCause`），父取消/断线级联取消；子 run 同样登记进取消注册表 |
+| 并行委派（P1 尾，默认关） | `engine.go::executeToolCalls` 对 delegate_agent 开并行分支，上限 `subagent.max_parallel` |
+| 深度限制 | `subagent.max_depth`（默认 2）：达到上限后子 run 不再装配 delegate_agent，直接调用也会被拒 |
+
+## 2. 配置
+
+```yaml
+llm:
+  react:
+    subagent:
+      enabled: true          # 关闭则不注册 delegate_agent、不解析 agent 资源（与历史版本一致）
+      max_parallel: 1        # 同轮并行委派上限；>1 时多个子 run 并行执行（默认 1=串行）
+      default_max_steps: 8   # agent 未配置 max_steps 时的子 run 步数上限
+      max_depth: 2           # 委派嵌套深度上限（子 Agent 再委派），防递归失控
+```
+
+开启前需执行 `sql/init.sql` 中 `tblLlmAgent` 建表；存量环境按 init.sql 内注释执行 `tblLlmReactRun` 增列 ALTER。
+
+## 3. Agent 定义语义
+
+- `agent_key`：delegate_agent 入参标识，仅允许字母/数字/`_`/`-`；同一 caller 下唯一（`caller_key=default` 为全 caller 默认作用域，与 skill 同款合并语义）。
+- `description`：委派质量的生命线，注入 delegate_agent 工具描述；建议「适用问题类型 + 不适用边界」两段。
+- `tools_json`：**空数组 = 继承 caller 全部可见工具**；非空 = 按 name/toolId 白名单过滤。
+- `skills_json`：**空数组 = 不注入任何 Skill 索引**（专家子 Agent 行为由 system_prompt 主导）；非空按 name/skillId 过滤。
+- `model_key` 为空 = 继承父 run 当前模型（含互备后的实际模型）；`max_steps` 为空 = 取 `subagent.default_max_steps`。
+- 子 run 不注入长期记忆（memoryContext 置空）、不注入会话级异步任务提醒、不继承父已加载工具与 todo。
+- `permission_mode` 字段已建，`inherit/auto/confirm/confirm_risky` 中后三者待 P2 危险操作确认生效。
+
+### Markdown 导入（文件型 Agent 定义）
+
+`POST /agent/import`，请求体 `{callerKey?, routeValues?, status?, markdown}`；markdown 格式：
+
+```markdown
+---
+agent_key: dba-agent
+name: DBA 专家
+description: |
+  适用问题：数据库性能、慢查询、执行计划分析
+  不适用：非数据库问题
+tools:
+  - query_schema
+  - explain_sql
+skills: []
+model_key: ""
+max_steps: 6
+caller_key: ops-workbench
+route_values: []
+---
+你是一名资深 DBA……（正文即 system_prompt）
+```
+
+frontmatter 缺省字段回退请求体（caller_key/routeValues 必须至少一处提供）。
+
+## 4. 管理接口
+
+| 路径 | 说明 |
+|---|---|
+| `POST /agent/create` / `update` / `delete` / `list` / `detail` | 与 skill/tool 同构的管理 CRUD |
+| `POST /agent/import` | Markdown 定义导入 |
+
+## 5. 事件协议扩展（向后兼容）
+
+- 事件信封新增 `agentPath`：外层 run **省略该字段**（旧客户端无感，新客户端按 `main` 渲染）；子 run 事件形如 `"main/ops-agent"`，嵌套再委派继续拼接（`"main/ops-agent/dba-agent"`）。
+- 子 run 事件实时冒泡进父 WS 连接的事件流（`tool_use_start/end`、`thought_*`、`content_*`、`done` 等照常），按 `runId + agentPath` 区分卡片。
+- `/react/session/events` 回放按真实时间线混排全部 run 的消息（外层与子 run 交错），事件带 agentPath；父 run 终态事件落在其全部消息之后，子 run 终态在切回父 run 时发出。
+
+## 6. 历史隔离（关键不变量）
+
+- 外层 run 装配 LLM 历史时**只读外层 run 的消息**（`GetOuterReactMessagesBySessionIDWithDB` 按 `parent_run_id` 过滤）；子 run 消息只属于子 run 上下文与回放，绝不进入父历史。
+- 上一 run 状态继承（todo/已加载工具）只取最近一个**外层 run**。
+- 会话摘要（last_run_id/last_message）只由外层 run 收敛时更新。
+- 子 run 取消时父 `Cancel` 通过 context cause 级联（`ErrReactRunCancelled` 语义保持）。
+
+## 7. 已知边界（按方案预留）
+
+- 并行委派（max_parallel>1）时多个子 run 若同时进入 ask_question/client tool 等待，会竞争同一条上行消息通道（并行 HITL 暂不支持）；需要稳定 HITL 的场景保持 max_parallel=1。
+- 子 run token 独立按 run 落库；父 run 汇总 `delegated` 口径的报表聚合待后续（数据已具备：按 parent_run_id 关联查询）。
+- P2（代码 Workspace、AgentSkills 文件标准、危险操作确认）与 P3（Bundle 插件、编排容器）按方案后续推进。

@@ -105,11 +105,15 @@ func GetReactMessagesBySessionIDWithDB(ctx *gin.Context, db *gorm.DB, sessionID 
 	return messages, nil
 }
 
+// GetOuterReactMessagesBySessionIDWithDB 返回会话内「外层 run」的消息（排除 delegate_agent 子 run），
+// 供外层 run 启动时装配 LLM 历史——子 run 的消息只属于子 run 自己的上下文，绝不进入父历史。
 func GetOuterReactMessagesBySessionIDWithDB(ctx *gin.Context, db *gorm.DB, sessionID string) ([]ReactMessage, error) {
 	var messages []ReactMessage
 	err := db.Model(&ReactMessage{}).WithContext(ctx).
-		Where("session_id = ?", sessionID).
-		Order("created_at ASC, seq ASC").Find(&messages).Error
+		Joins("JOIN `tblLlmReactRun` `run` ON `run`.`run_id` = `tblLlmReactMessage`.`run_id`").
+		Where("`tblLlmReactMessage`.`session_id` = ? AND (`run`.`parent_run_id` IS NULL OR `run`.`parent_run_id` = '')", sessionID).
+		Order("`tblLlmReactMessage`.`created_at` ASC, `tblLlmReactMessage`.`seq` ASC").
+		Find(&messages).Error
 	if err != nil {
 		return nil, components.ErrorDbSelect.Wrap(err)
 	}
@@ -125,7 +129,8 @@ func GetReactMessagesBySessionIDTimelineWithDB(ctx *gin.Context, db *gorm.DB, se
 	if err != nil {
 		return nil, err
 	}
-	messages, err := GetOuterReactMessagesBySessionIDWithDB(ctx, db, sessionID)
+	// 回放需要完整还原全过程：外层与 delegate 子 run 的消息全部返回，按真实时间线混排。
+	messages, err := GetReactMessagesBySessionIDWithDB(ctx, db, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -135,10 +140,15 @@ func GetReactMessagesBySessionIDTimelineWithDB(ctx *gin.Context, db *gorm.DB, se
 		runOrder[run.RunID] = i
 	}
 
+	// created_at 为主序保证子 run 消息按真实发生位置插入父 run 消息之间（子 run 创建晚于父、
+	// 结束早于父恢复）；runOrder/seq/id 仅作同秒内的稳定次序。
 	sort.SliceStable(messages, func(i, j int) bool {
 		left := messages[i]
 		right := messages[j]
 
+		if !left.CreatedAt.Equal(right.CreatedAt) {
+			return left.CreatedAt.Before(right.CreatedAt)
+		}
 		leftOrder, leftOK := runOrder[left.RunID]
 		rightOrder, rightOK := runOrder[right.RunID]
 		switch {
@@ -146,8 +156,6 @@ func GetReactMessagesBySessionIDTimelineWithDB(ctx *gin.Context, db *gorm.DB, se
 			return leftOrder < rightOrder
 		case leftOK != rightOK:
 			return leftOK
-		case !left.CreatedAt.Equal(right.CreatedAt):
-			return left.CreatedAt.Before(right.CreatedAt)
 		case left.Seq != right.Seq:
 			return left.Seq < right.Seq
 		default:

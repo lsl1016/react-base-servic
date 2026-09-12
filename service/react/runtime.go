@@ -19,10 +19,10 @@ import (
 	systempromptService "react-base-service/service/systemprompt"
 	toolService "react-base-service/service/tool"
 
-	"react-base-service/golib/zlog"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"react-base-service/golib/zlog"
 )
 
 const (
@@ -63,17 +63,35 @@ type runtimeRequest struct {
 	toolsIndexSnapshotJSON  string
 	// memoryContext 是长期记忆注入块（<memory>...</memory>），memory.enabled 时在 prepareRuntimeRequest 装配；
 	// 每次 run 初始化重新解析，保证上一个 run 的写入对后续轮次立即可见。
-	memoryContext           string
-	routeValuesJSON         string
-	historyMessages         []llm.ChatMessage
-	historyMessageRefs      [][]reactMessageRef
-	modelUserMessage        llm.ChatMessage
-	modelUserMessageRef     reactMessageRef
-	attachments             []reactAttachmentSnapshot
-	callerRuntimeContext    components.CallerRuntimeContext
-	todoStateJSON           string
-	prevActiveToolIDsJSON   string
-	prevActiveToolDefsJSON  string
+	memoryContext string
+	// agents 是 caller 可见的子 Agent 清单（subagent.enabled 时装配），
+	// 用于 delegate_agent 工具描述动态渲染与委派解析。
+	agents []model.Agent
+	// agentPath 是当前 run 的多 Agent 事件归属路径；外层 run 为空（事件省略，前端按 main 渲染），
+	// delegate_agent 子 run 形如 main/ops-agent。
+	agentPath string
+	// depth 是委派嵌套深度：外层 run 为 0，每委派一层 +1；达到 subagent.max_depth 后不再装配 delegate_agent。
+	depth                  int
+	routeValuesJSON        string
+	historyMessages        []llm.ChatMessage
+	historyMessageRefs     [][]reactMessageRef
+	modelUserMessage       llm.ChatMessage
+	modelUserMessageRef    reactMessageRef
+	attachments            []reactAttachmentSnapshot
+	callerRuntimeContext   components.CallerRuntimeContext
+	todoStateJSON          string
+	prevActiveToolIDsJSON  string
+	prevActiveToolDefsJSON string
+}
+
+// delegationAllowed 判定当前 run 是否装配 delegate_agent：
+// subagent 开启、可见 agent 非空、且当前深度还允许再委派一层（depth < max_depth）。
+func (r *runtimeRequest) delegationAllowed() bool {
+	cfg := conf.GetReactRuntimeConfig().SubAgent
+	if !cfg.SubAgentEnabled() || len(r.agents) == 0 {
+		return false
+	}
+	return r.depth < cfg.MaxDepth
 }
 
 type reactMessageRef struct {
@@ -88,9 +106,11 @@ type compactSummaryContent struct {
 }
 
 // runEventEmitter 负责给运行时事件补齐 runId/sessionId/seq，并串行写出，避免并发工具事件打乱顺序。
+// agentPath 标记多 Agent 事件归属（子 run 冒泡事件用），外层 run 为空、事件省略该字段。
 type runEventEmitter struct {
 	runID     string
 	sessionID string
+	agentPath string
 	seq       int
 	write     EventWriter
 	mu        sync.Mutex
@@ -116,6 +136,7 @@ func (e *runEventEmitter) emit(eventType string, stepIndex *int, payload any) er
 		RunID:     e.runID,
 		SessionID: e.sessionID,
 		StepIndex: stepIndex,
+		AgentPath: e.agentPath,
 		Payload:   payload,
 	})
 }
@@ -192,7 +213,7 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 		return nil, err
 	}
 	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
-	initialTools := internalMetaToolDefinitionsForType(req.payload.Type)
+	initialTools := runtimeToolDefinitions(req, executionProfileForRun(req))
 	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext)
 	if err := checkEntryInputTokens(initialSystemContent, req.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
 		return nil, err
@@ -293,7 +314,7 @@ func createReactRunContext(ctx *gin.Context, req *runtimeRequest) (string, strin
 		}
 		req.historyMessages, req.historyMessageRefs = reactMessagesToChatMessagesWithRefs(storedMessages)
 
-		latestRun, err := model.GetLatestReactRunBySessionIDWithDB(ctx, tx, sessionID)
+		latestRun, err := model.GetLatestOuterReactRunBySessionIDWithDB(ctx, tx, sessionID)
 		if err != nil {
 			return err
 		}
@@ -426,6 +447,15 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 	}
 	toolsIndexSnapshotJSON := buildToolIndexSnapshotJSON(tools)
 
+	// 子 Agent 清单：subagent.enabled 时装配，用于 delegate_agent 工具描述动态渲染与委派解析。
+	var agents []model.Agent
+	if conf.CustomConf.LLM.React.SubAgent.SubAgentEnabled() {
+		agents, err = model.FindAgentsByCallerAndRoutes(ctx, payload.CallerKey, route.BuildRoutePrefixes(routeValues))
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// 长期记忆注入块：memory.enabled 时解析 caller(+user) 作用域并渲染常驻层与目录索引；
 	// 记忆为空返回空串（不注入，token 零增量）。
 	var memoryContext string
@@ -454,6 +484,7 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 		skillsIndexSnapshotJSON: skillsIndexSnapshotJSON,
 		toolsIndexSnapshotJSON:  toolsIndexSnapshotJSON,
 		memoryContext:           memoryContext,
+		agents:                  agents,
 		routeValuesJSON:         string(routeValuesBytes),
 		modelUserMessage:        modelUserMessage,
 		attachments:             attachments,

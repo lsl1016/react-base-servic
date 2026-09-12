@@ -47,6 +47,9 @@ const (
 	defaultReactMemoryReflectionCooldownMin = 60
 	defaultReactMemoryReflectionMaxWrites   = 20
 	defaultReactMemoryReflectionTranscript  = 16000
+	defaultReactSubAgentMaxParallel         = 1
+	defaultReactSubAgentMaxSteps            = 8
+	defaultReactSubAgentMaxDepth            = 2
 )
 
 // ReactRuntimeConfig ReAct 运行时配置，只承载线上需要按模型和成本调整的策略参数。
@@ -67,6 +70,30 @@ type ReactRuntimeConfig struct {
 	AllowPlan *bool `yaml:"allow_plan"`
 	// Memory 控制长期记忆（跨会话记忆）能力；未配置时默认关闭。
 	Memory ReactMemoryConfig `yaml:"memory"`
+	// SubAgent 控制子 Agent 委派能力（delegate_agent）；未配置时默认关闭，
+	// 行为与历史版本一致（不注册 delegate_agent、不解析 agent 资源）。
+	SubAgent ReactSubAgentConfig `yaml:"subagent"`
+}
+
+// ReactSubAgentConfig 子 Agent 委派配置：主 Agent 经 delegate_agent 把子任务派给
+// 注册表中的专家子 Agent，引擎按 agent 定义装配隔离子 run 执行。
+type ReactSubAgentConfig struct {
+	// Enabled 控制子 Agent 委派总开关；未配置时默认 false。
+	Enabled *bool `yaml:"enabled"`
+	// MaxParallel 是同一轮多个 delegate_agent 调用的并行上限；默认 1（串行，与历史行为一致）。
+	MaxParallel int `yaml:"max_parallel"`
+	// DefaultMaxSteps 是 agent 未配置 max_steps 时子 run 的步数上限。
+	DefaultMaxSteps int `yaml:"default_max_steps"`
+	// MaxDepth 是委派嵌套深度上限（子 Agent 再委派），防递归失控；外层 run 深度为 0。
+	MaxDepth int `yaml:"max_depth"`
+}
+
+// SubAgentEnabled 解析 subagent.enabled：未配置时默认 false。
+func (c ReactSubAgentConfig) SubAgentEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
 }
 
 // AllowPlanEnabled 解析 allow_plan 配置：未配置时默认 true。
@@ -387,6 +414,18 @@ func GetReactRuntimeConfig() ReactRuntimeConfig {
 	}
 	memory.Reflection = reflection
 	cfg.Memory = memory
+
+	subAgent := cfg.SubAgent
+	if subAgent.MaxParallel <= 0 {
+		subAgent.MaxParallel = defaultReactSubAgentMaxParallel
+	}
+	if subAgent.DefaultMaxSteps <= 0 {
+		subAgent.DefaultMaxSteps = defaultReactSubAgentMaxSteps
+	}
+	if subAgent.MaxDepth <= 0 {
+		subAgent.MaxDepth = defaultReactSubAgentMaxDepth
+	}
+	cfg.SubAgent = subAgent
 
 	models := cfg.Models
 	available := make([]ReactModelConfig, 0, len(models.Available))

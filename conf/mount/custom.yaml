@@ -63,6 +63,13 @@ llm:
         cooldown_minutes: 60        # 同一 session 两次整理的最小间隔
         max_writes_per_run: 20      # 单次整理写操作上限（create/update/delete 合计）
         transcript_char_limit: 16000  # 注入给整理任务的被压缩原文转录字符上限
+    # 子 Agent 委派（delegate_agent）：开启前需先执行 sql/init.sql 中 tblLlmAgent 建表；
+    # 未配置默认关闭（不注册 delegate_agent、不解析 agent 资源，行为与历史版本一致）。
+    subagent:
+      enabled: true
+      max_parallel: 1        # 同一轮多个 delegate_agent 调用的并行上限（一期保持串行）
+      default_max_steps: 8   # agent 未配置 max_steps 时子 run 的步数上限
+      max_depth: 2           # 委派嵌套深度上限（子 Agent 再委派），防递归失控
 
 # MCP 客户端：kind=repo 走 stdio 适配器白名单（可执行文件部署于 bin/，env 注入子进程）；
 # kind=http 走手写 Streamable HTTP；kind=http_sdk 走官方 MCP Go SDK（modelcontextprotocol/go-sdk）实现。

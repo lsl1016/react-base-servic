@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	llm "react-base-service/api/llm"
@@ -18,8 +19,8 @@ import (
 	"react-base-service/service/mcpclient"
 	toolService "react-base-service/service/tool"
 
-	"react-base-service/golib/zlog"
 	"github.com/gin-gonic/gin"
+	"react-base-service/golib/zlog"
 )
 
 const (
@@ -76,6 +77,9 @@ type reactEngineState struct {
 	// 仅当 streamResult.InputTokens > 0 时更新，避免流式中断的 0 覆盖。
 	lastInputTokens  int
 	lastOutputTokens int
+	// agentPath 是当前 run 的多 Agent 事件归属路径（外层 run 为空）；depth 是委派嵌套深度。
+	agentPath string
+	depth     int
 }
 
 type reactClientToolCall struct {
@@ -113,7 +117,7 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 		ctx:                    ctx,
 		runCtx:                 runCtx,
 		req:                    req,
-		profile:                executionProfileForSessionType(req.payload.Type),
+		profile:                executionProfileForRun(req),
 		runID:                  runID,
 		sessionID:              sessionID,
 		client:                 client,
@@ -127,17 +131,21 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 		prevToolDefFingerprint: make(map[string]string),
 		loadedSkillID:          make(map[string]bool),
 		todoStateJSON:          req.todoStateJSON,
+		agentPath:              req.agentPath,
+		depth:                  req.depth,
 	}
 	// 恢复上一个 run 已加载且定义未变化的 Business Tool，避免模型按历史上下文直接 execute_tool 时空转报错。
 	if err := state.restoreActiveToolsFromPreviousRun(); err != nil {
 		zlog.Warnf(ctx, "[React] 恢复历史已加载工具失败(忽略,模型可重新 get_tool): runId=%s, sessionId=%s, err=%v", runID, sessionID, err)
 	}
-	// 加载当前 Session 的未完结异步任务，作为临时提醒注入模型上下文。
-	if pendingTasks, hasMore, err := loadPendingReactAsyncTasks(ctx, sessionID); err != nil {
-		zlog.Warnf(ctx, "[React] 加载未完结异步任务失败(忽略,本次不注入提醒): runId=%s, sessionId=%s, err=%v", runID, sessionID, err)
-	} else {
-		state.pendingAsyncTasks = pendingTasks
-		state.pendingAsyncTasksHasMore = hasMore
+	// 加载当前 Session 的未完结异步任务，作为临时提醒注入模型上下文（子 run 不注入）。
+	if state.profile.InjectAsyncTaskReminder {
+		if pendingTasks, hasMore, err := loadPendingReactAsyncTasks(ctx, sessionID); err != nil {
+			zlog.Warnf(ctx, "[React] 加载未完结异步任务失败(忽略,本次不注入提醒): runId=%s, sessionId=%s, err=%v", runID, sessionID, err)
+		} else {
+			state.pendingAsyncTasks = pendingTasks
+			state.pendingAsyncTasksHasMore = hasMore
+		}
 	}
 
 	maxSteps := normalizeMaxSteps(req.payload.MaxSteps)
@@ -271,13 +279,14 @@ func (s *reactEngineState) contextMessages() []llm.ChatMessage {
 	return messages
 }
 
-// buildToolDefinitions 按会话类型暴露工具：reflection 只暴露记忆三工具，其余暴露完整 Meta Tool 集。
+// buildToolDefinitions 按执行档案暴露工具：reflection 只暴露记忆三工具，其余暴露完整 Meta Tool 集；
+// delegate_agent 在 subagent 开启、可见 agent 非空且未达深度上限时动态装配。
 // req 为 nil 时（单测构造的最小引擎状态）回退到完整集合。
 func (s *reactEngineState) buildToolDefinitions() []llm.ToolDefinition {
 	if s.req == nil {
 		return internalMetaToolDefinitions()
 	}
-	return internalMetaToolDefinitionsForType(s.req.payload.Type)
+	return runtimeToolDefinitions(s.req, s.profile)
 }
 
 func sortedActiveToolNames(tools map[string]model.Tool) []string {
@@ -523,8 +532,69 @@ consume:
 	return result(), nil
 }
 
-// executeToolCalls 按模型返回顺序串行执行同一步工具，保证外部副作用和结果回填顺序稳定。
+// executeToolCalls 按模型返回顺序执行同一步工具，保证外部副作用和结果回填顺序稳定。
+// delegate_agent 调用之间可并行（agent 委派无副作用），受 subagent.max_parallel 限制；
+// 其余工具保持串行；并行度 1（默认）时与历史完全串行等价。
+// 注意：并行委派的多个子 run 若同时进入 ask_question/client tool 等待，会竞争同一条上行
+// 消息通道（并行 HITL 不受支持）；需要稳定 HITL 的场景应保持 max_parallel=1。
 func (s *reactEngineState) executeToolCalls(calls []llm.ToolCall, step int) ([]llm.ToolResultContent, error) {
+	if s.delegateParallelism(len(calls)) <= 1 {
+		return s.executeToolCallsSerial(calls, step)
+	}
+
+	results := make([]llm.ToolResultContent, len(calls))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+	recordErr := func(err error) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	sem := make(chan struct{}, s.delegateParallelism(len(calls)))
+	for i, call := range calls {
+		if call.Name != metaToolDelegateAgent {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, call llm.ToolCall) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			start := time.Now()
+			result, err := s.executeToolCall(call, step)
+			metrics.ObserveToolCall(s.metricToolName(call), start, result.IsError)
+			results[i] = result
+			recordErr(err)
+		}(i, call)
+	}
+	for i, call := range calls {
+		if call.Name == metaToolDelegateAgent {
+			continue
+		}
+		start := time.Now()
+		result, err := s.executeToolCall(call, step)
+		metrics.ObserveToolCall(s.metricToolName(call), start, result.IsError)
+		results[i] = result
+		if err != nil {
+			// 串行工具出错即停并返回，与历史中止语义一致；取消/断线错误同时会让在途委派子 run 级联收敛。
+			recordErr(err)
+			break
+		}
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return results, firstErr
+	}
+	return results, nil
+}
+
+func (s *reactEngineState) executeToolCallsSerial(calls []llm.ToolCall, step int) ([]llm.ToolResultContent, error) {
 	results := make([]llm.ToolResultContent, len(calls))
 	for i, call := range calls {
 		start := time.Now()
@@ -536,6 +606,19 @@ func (s *reactEngineState) executeToolCalls(calls []llm.ToolCall, step int) ([]l
 		}
 	}
 	return results, nil
+}
+
+// delegateParallelism 返回本轮 delegate_agent 的并行度：
+// 仅当同轮存在多个委派调用、执行档案放行且配置 max_parallel>1 时取配置值，否则 1。
+func (s *reactEngineState) delegateParallelism(callCount int) int {
+	if callCount <= 1 || s.req == nil || !s.profile.AllowSubagent {
+		return 1
+	}
+	cfg := conf.GetReactRuntimeConfig().SubAgent
+	if !cfg.SubAgentEnabled() || cfg.MaxParallel <= 1 {
+		return 1
+	}
+	return cfg.MaxParallel
 }
 
 // metricToolName 解析用于指标标签的工具名：execute_tool 反解入参里的业务工具名，其余用元工具名。
@@ -636,6 +719,7 @@ func (s *reactEngineState) executeServerTool(call llm.ToolCall, tool model.Tool,
 }
 
 // finish 收敛 run 的最终状态，更新会话摘要，并向前端发送 done 事件。
+// 子 run（agentPath 非空）不更新会话摘要：last_run_id/last_message 由外层 run 收敛时统一更新。
 func (s *reactEngineState) finish(content, terminationReason string) error {
 	metrics.RunsTotal.WithLabelValues("finished").Inc()
 	if err := model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{
@@ -647,10 +731,12 @@ func (s *reactEngineState) finish(content, terminationReason string) error {
 	}); err != nil {
 		return err
 	}
-	_ = model.UpdateReactSessionBySessionID(s.ctx, s.sessionID, map[string]interface{}{
-		"last_run_id":  s.runID,
-		"last_message": trimRunLastMessage(content),
-	})
+	if s.agentPath == "" {
+		_ = model.UpdateReactSessionBySessionID(s.ctx, s.sessionID, map[string]interface{}{
+			"last_run_id":  s.runID,
+			"last_message": trimRunLastMessage(content),
+		})
+	}
 	return s.emitter.Emit(EventDone, params.ReactDonePayload{
 		InputTokens:       s.inputTokens,
 		OutputTokens:      s.outputTokens,

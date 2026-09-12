@@ -59,6 +59,9 @@ type ReactEvent struct {
 	RunID     string `json:"runId,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
 	StepIndex *int   `json:"stepIndex,omitempty"`
+	// AgentPath 标记多 Agent 事件归属（如 main/ops-agent）；外层 run 省略该字段，
+	// 旧客户端无感，新客户端按缺省 "main" 渲染。
+	AgentPath string `json:"agentPath,omitempty"`
 	Payload   any    `json:"payload,omitempty"`
 }
 
@@ -249,6 +252,7 @@ type ReactHistoryEvent struct {
 	RunID     string `json:"runId,omitempty"`
 	SessionID string `json:"sessionId,omitempty"`
 	StepIndex *int   `json:"stepIndex,omitempty"`
+	AgentPath string `json:"agentPath,omitempty"`
 	Payload   any    `json:"payload,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
 }

@@ -48,6 +48,18 @@ func executionProfileForSessionType(sessionType string) ExecutionProfile {
 	return outerExecutionProfile()
 }
 
+// executionProfileForRun 按运行请求选择执行档案：delegate_agent 子 run 用受限的外层档案
+// （不注入会话级异步任务提醒），其余按会话类型；req 为 nil（单测最小状态）按外层对话处理。
+func executionProfileForRun(req *runtimeRequest) ExecutionProfile {
+	if req == nil {
+		return outerExecutionProfile()
+	}
+	if req.agentPath != "" {
+		return subAgentExecutionProfile()
+	}
+	return executionProfileForSessionType(req.payload.Type)
+}
+
 // internalMetaToolDefinitionsForType 按会话类型裁剪内置工具声明：
 // reflection 只暴露记忆三工具（执行侧由 ExecutionProfile 双重拦截）。
 func internalMetaToolDefinitionsForType(sessionType string) []llm.ToolDefinition {

@@ -1,0 +1,368 @@
+package react
+
+// delegate_agent：子 Agent 委派（服务端 AI 工作台改造方案 P1 核心）。
+//
+// 设计要点（与方案 4.1 节逐条对应）：
+//   - 子 Agent 是注册类资源（tblLlmAgent），对主 Agent 呈现为一个 Meta Tool：
+//     描述动态渲染 caller 可见的 agent 清单，主 LLM 由此"发现"子代理；
+//   - 执行是复用现有引擎的隔离子 run：同 session 落库（parent_run_id/agent_path），
+//     上下文 = agent.system_prompt + 子代理工具/Skill 索引 + 单条 user(task)，
+//     不含父历史、不含父已加载工具、不注入长期记忆（隔离的三大来源）；
+//   - 子 run 事件实时冒泡进父 WS 事件流（带 agentPath），但消息不进父的 LLM 历史
+//     （GetOuterReactMessagesBySessionIDWithDB 已按外层 run 过滤）；
+//   - 结束取子 run 最后一条 assistant 消息回填父循环（OH get_agent_final_response 等价物）；
+//   - 嵌套 HITL：子 run 的 ask_question/client tool 走共享 readClient，父循环阻塞在
+//     delegate 工具执行中，上行的 tool_use_answer 只会被子 run 读到，协议无需改动；
+//   - 取消传播：子 runCtx 从父 runCtx 派生，父取消/断线级联取消子 run（复用 Cancel 传播）。
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	llm "react-base-service/api/llm"
+	"react-base-service/components"
+	"react-base-service/components/metrics"
+	"react-base-service/components/params"
+	"react-base-service/conf"
+	"react-base-service/helpers"
+	model "react-base-service/models/llm"
+
+	"github.com/gin-gonic/gin"
+	"react-base-service/golib/zlog"
+)
+
+// rootAgentPath 是事件协议中外层 run 的缺省 Agent 路径（事件侧省略字段，前端按 main 渲染）。
+const rootAgentPath = "main"
+
+// delegateAgentPath 计算子 run 的 agentPath：父路径为空（外层 run）时以 main 为根，
+// 形如 main/ops-agent；嵌套委派继续拼接 main/ops-agent/dba-agent。
+func delegateAgentPath(parentAgentPath, agentKey string) string {
+	parentAgentPath = strings.TrimSpace(parentAgentPath)
+	if parentAgentPath == "" {
+		return rootAgentPath + "/" + agentKey
+	}
+	return parentAgentPath + "/" + agentKey
+}
+
+type delegateAgentInput struct {
+	AgentKey string `json:"agent_key"`
+	Task     string `json:"task"`
+	Expect   string `json:"expect"`
+}
+
+// delegateAgentToolDefinition 构造 delegate_agent 工具声明，描述动态渲染可用子 Agent 清单。
+// 子代理数量少、schema 固定，不走 get_tool/execute_tool 两段式，直接暴露。
+func delegateAgentToolDefinition(agents []model.Agent) llm.ToolDefinition {
+	agentKeys := make([]string, 0, len(agents))
+	var sb strings.Builder
+	sb.WriteString("把一个自包含的子任务委派给专家子 Agent 隔离执行，阻塞等待其结论后返回。")
+	sb.WriteString("子 Agent 看不到当前对话历史，task 必须包含完成子任务所需的全部背景、已知信息与期望产出；")
+	sb.WriteString("需要多个子 Agent 配合时分别委派，不要把多个目标塞进一次调用。\n可用子 Agent：\n")
+	for _, agent := range agents {
+		agentKeys = append(agentKeys, agent.AgentKey)
+		sb.WriteString(fmt.Sprintf("- agent_key: %s\n  name: %s\n  description: %s\n", agent.AgentKey, agent.Name, strings.TrimSpace(agent.Description)))
+		if tools := parseAgentStringList(agent.ToolsJSON); len(tools) > 0 {
+			sb.WriteString(fmt.Sprintf("  tools: %s\n", strings.Join(tools, ", ")))
+		}
+	}
+	return llm.ToolDefinition{
+		Name:        metaToolDelegateAgent,
+		Description: strings.TrimSpace(sb.String()),
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"description": stringSchema("本次委派目的，名词短语，用于前端展示。"),
+				"agent_key": map[string]interface{}{
+					"type":        "string",
+					"enum":        agentKeys,
+					"description": "目标子 Agent 的 agent_key。",
+				},
+				"task":   stringSchema("完整自包含的任务描述。子 Agent 看不到当前对话，必须写明任务目标、全部已知信息（ID、时间范围、报错原文等）与需要产出什么。"),
+				"expect": stringSchema("期望返回什么（可选），例如：根因结论 + 关键证据。"),
+			},
+			"required":             []string{"description", "agent_key", "task"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+// executeDelegateAgent 执行 delegate_agent：解析目标 agent → 组装隔离子 run → 复用引擎执行 →
+// 取子 run 最终回复作为工具结果回填父循环。返回值遵循 executeInternalToolContent 约定：
+// err 仅在中断（取消/断连）时非 nil 并向上传播，其余失败以 isError 结果回给模型自行调整。
+func (s *reactEngineState) executeDelegateAgent(call llm.ToolCall, step int) (string, bool, error) {
+	var input delegateAgentInput
+	if err := json.Unmarshal(call.Input, &input); err != nil {
+		return "delegate_agent input must be a valid JSON object", true, nil
+	}
+	input.AgentKey = strings.TrimSpace(input.AgentKey)
+	input.Task = strings.TrimSpace(input.Task)
+	input.Expect = strings.TrimSpace(input.Expect)
+	if input.AgentKey == "" || input.Task == "" {
+		return "delegate_agent requires agent_key and task", true, nil
+	}
+
+	cfg := conf.GetReactRuntimeConfig().SubAgent
+	agent, ok := s.findVisibleAgent(input.AgentKey)
+	if !ok {
+		return fmt.Sprintf("agent %s is not available, available agents: %s", input.AgentKey, strings.Join(s.visibleAgentKeys(), ", ")), true, nil
+	}
+	if s.depth+1 > cfg.MaxDepth {
+		return fmt.Sprintf("delegation depth limit reached (max_depth=%d), handle this task yourself instead of delegating", cfg.MaxDepth), true, nil
+	}
+
+	subReq, subRunID, err := s.buildSubAgentRuntimeRequest(agent, input.Task, input.Expect)
+	if err != nil {
+		return "", true, err
+	}
+
+	subCtx, cancel := context.WithCancelCause(s.runCtx)
+	registerReactRunCancel(subRunID, cancel)
+	metrics.RunsActive.Inc()
+	defer func() {
+		cancel(nil)
+		unregisterReactRunCancel(subRunID)
+		metrics.RunsActive.Dec()
+	}()
+
+	subEmitter := &runEventEmitter{runID: subRunID, sessionID: s.sessionID, agentPath: subReq.agentPath, write: s.emitter.write}
+	zlog.Infof(s.ctx, "[React.Delegate] 子Agent run启动: parentRun=%s, subRun=%s, agentKey=%s, agentPath=%s", s.runID, subRunID, agent.AgentKey, subReq.agentPath)
+
+	loopErr := executeReactLoop(s.ctx, subCtx, subReq, subRunID, s.sessionID, subEmitter, s.readClient)
+	if loopErr != nil {
+		s.finalizeSubAgentRunError(subRunID, loopErr)
+		if IsReactRunCancelled(loopErr) || IsReactClientDisconnected(loopErr) || errors.Is(loopErr, context.DeadlineExceeded) {
+			return "", false, loopErr
+		}
+		// 子 run 失败（模型故障、超步数上限等）：软错误回给父模型，可自行调整后重试或换路。
+		return fmt.Sprintf("子 Agent %s 执行失败: %s", agent.AgentKey, loopErr.Error()), true, nil
+	}
+
+	finalResponse, err := subAgentFinalResponse(s.ctx, subRunID)
+	if err != nil {
+		return fmt.Sprintf("子 Agent %s 未产生最终回复: %v", agent.AgentKey, err), true, nil
+	}
+	zlog.Infof(s.ctx, "[React.Delegate] 子Agent run完成: parentRun=%s, subRun=%s, agentKey=%s", s.runID, subRunID, agent.AgentKey)
+	resultPayload, _ := json.Marshal(map[string]string{
+		"agentKey":      agent.AgentKey,
+		"runId":         subRunID,
+		"finalResponse": finalResponse,
+	})
+	return string(resultPayload), false, nil
+}
+
+// buildSubAgentRuntimeRequest 组装子 run 的运行请求：复用 prepareRuntimeRequest 完成 caller/apikey/
+// 模型解析与全量索引装配，再覆盖为 agent 定义（系统提示词、工具/Skill 白名单、独立历史、继承或指定模型）。
+func (s *reactEngineState) buildSubAgentRuntimeRequest(agent model.Agent, task, expect string) (*runtimeRequest, string, error) {
+	cfg := conf.GetReactRuntimeConfig().SubAgent
+
+	modelKey := strings.TrimSpace(agent.ModelKey)
+	modelVersion := strings.TrimSpace(agent.ModelVersion)
+	if modelKey == "" {
+		// 空 = 继承父 run 当前模型（含互备后的实际模型，OH 同款默认）。
+		modelKey = s.currentModel.ModelKey
+		modelVersion = s.currentModel.ModelVersion
+	} else {
+		modelVersion = llm.ResolveModelVersion(modelKey, modelVersion)
+	}
+	if strings.TrimSpace(modelVersion) == "" {
+		return nil, "", components.ErrorModelNotSupported.Sprintf(modelKey)
+	}
+
+	maxSteps := agent.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = cfg.DefaultMaxSteps
+	}
+
+	taskContent := task
+	if expect != "" {
+		taskContent += "\n\n期望返回：" + expect
+	}
+
+	payload := params.ReactRunPayload{
+		CallerKey:    s.req.payload.CallerKey,
+		RouteValues:  s.req.payload.RouteValues,
+		Type:         model.ReactSessionTypeChat,
+		UserPrompt:   taskContent,
+		ModelKey:     modelKey,
+		ModelVersion: modelVersion,
+		MaxSteps:     maxSteps,
+	}
+	base, err := prepareRuntimeRequest(s.ctx, payload, s.sessionID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// 隔离覆盖：不继承父历史与已加载工具，系统提示词/工具/Skill 换为 agent 定义，不注入长期记忆。
+	base.historyMessages = nil
+	base.historyMessageRefs = nil
+	base.attachments = nil
+	base.systemPrompt = agent.SystemPrompt
+	base.toolsIndexSnapshotJSON = filterToolIndexSnapshot(base.toolsIndexSnapshotJSON, parseAgentStringList(agent.ToolsJSON))
+	base.skillsIndexSnapshotJSON = filterSkillIndexSnapshot(base.skillsIndexSnapshotJSON, parseAgentStringList(agent.SkillsJSON))
+	base.memoryContext = ""
+	base.modelUserMessage = llm.ChatMessage{Role: model.ReactMessageRoleUser, Content: taskContent}
+	base.todoStateJSON = ""
+	base.prevActiveToolIDsJSON = ""
+	base.prevActiveToolDefsJSON = ""
+	base.agents = s.req.agents // 嵌套委派可见同一清单（是否装配 delegate_agent 由 MaxDepth 限制）
+	base.agentPath = delegateAgentPath(s.agentPath, agent.AgentKey)
+	base.depth = s.depth + 1
+
+	subRunID := generateRunID()
+	base.modelUserMessageRef = reactMessageRef{RunID: subRunID, MessageID: generateMessageID(), Seq: 1}
+
+	// 入口 token 前置检查：system + tools + task 是子 run 的不可压缩部分。
+	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
+	profile := executionProfileForRun(base)
+	initialTools := runtimeToolDefinitions(base, profile)
+	initialSystemContent := buildReactSystemContent(base.systemPrompt, renderToolIndexSummary(base.toolsIndexSnapshotJSON), renderSkillIndexSummary(base.skillsIndexSnapshotJSON), base.memoryContext)
+	if err := checkEntryInputTokens(initialSystemContent, base.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
+		return nil, "", err
+	}
+
+	if err := s.createSubAgentRunRecord(base, subRunID); err != nil {
+		return nil, "", err
+	}
+	return base, subRunID, nil
+}
+
+// createSubAgentRunRecord 创建子 run 行并持久化委派任务为首条 user 消息。
+// 与 createReactRunContext 的差异：不锁定 session 行（session 已存在且被父 run 持有）、
+// 不做并发 run 检查（父 run 必然 active）、不更新会话摘要（外层 run 收敛时统一更新）。
+func (s *reactEngineState) createSubAgentRunRecord(req *runtimeRequest, subRunID string) error {
+	run := &model.ReactRun{
+		RunID:                   subRunID,
+		SessionID:               s.sessionID,
+		UserName:                req.userName,
+		CallerKey:               req.payload.CallerKey,
+		RouteValues:             req.routeValuesJSON,
+		State:                   model.ReactRunStateRunning,
+		StepIndex:               0,
+		MaxSteps:                normalizeMaxSteps(req.payload.MaxSteps),
+		ModelKey:                req.resolvedModelKey,
+		ModelVersion:            req.resolvedModelVersion,
+		ApiKey:                  req.apiKey,
+		SkillsIndexSnapshotJSON: req.skillsIndexSnapshotJSON,
+		ToolIndexSnapshotJSON:   req.toolsIndexSnapshotJSON,
+		ParentRunID:             s.runID,
+		AgentPath:               req.agentPath,
+	}
+	if err := model.CreateReactRun(s.ctx, run); err != nil {
+		return err
+	}
+	return persistUserInput(s.ctx, helpers.MysqlClientLLM, req, subRunID, s.sessionID)
+}
+
+// finalizeSubAgentRunError 收敛子 run 的失败终态（run() 错误路径的子 run 对应物）。
+func (s *reactEngineState) finalizeSubAgentRunError(subRunID string, loopErr error) {
+	if IsReactRunCancelled(loopErr) {
+		metrics.RunsTotal.WithLabelValues("cancelled").Inc()
+		_ = model.UpdateReactRunByRunID(s.ctx, subRunID, map[string]any{"state": model.ReactRunStateCancelled})
+		return
+	}
+	metrics.RunsTotal.WithLabelValues("error").Inc()
+	errorMessage := loopErr.Error()
+	if IsReactClientDisconnected(loopErr) {
+		errorMessage = "client disconnected"
+	}
+	_ = model.UpdateReactRunByRunID(s.ctx, subRunID, map[string]any{
+		"state":         model.ReactRunStateError,
+		"error_message": errorMessage,
+	})
+}
+
+// subAgentFinalResponse 取子 run 最后一条有正文的 assistant 消息作为最终回复。
+func subAgentFinalResponse(ctx *gin.Context, subRunID string) (string, error) {
+	messages, err := model.GetReactMessagesByRunID(ctx, subRunID)
+	if err != nil {
+		return "", err
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].MessageType != model.ReactMessageTypeAssistant {
+			continue
+		}
+		chatMessage := parseHistoryChatMessage(messages[i].ContentJSON)
+		if content := strings.TrimSpace(extractAssistantContent(chatMessage)); content != "" {
+			return content, nil
+		}
+	}
+	return "", fmt.Errorf("no assistant message with content")
+}
+
+func (s *reactEngineState) findVisibleAgent(agentKey string) (model.Agent, bool) {
+	for _, agent := range s.req.agents {
+		if agent.AgentKey == agentKey {
+			return agent, true
+		}
+	}
+	return model.Agent{}, false
+}
+
+func (s *reactEngineState) visibleAgentKeys() []string {
+	keys := make([]string, 0, len(s.req.agents))
+	for _, agent := range s.req.agents {
+		keys = append(keys, agent.AgentKey)
+	}
+	return keys
+}
+
+// parseAgentStringList 解析 agent 定义中的 JSON 字符串数组（tools_json/skills_json）。
+func parseAgentStringList(raw string) []string {
+	var values []string
+	_ = json.Unmarshal([]byte(raw), &values)
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+// filterToolIndexSnapshot 按 agent 白名单过滤工具索引：白名单为空表示继承 caller 全部可见工具；
+// 非空时按 name/toolId 匹配（配置写哪个都行）。未知名字自然丢弃，运行期 get_tool 也查不到。
+func filterToolIndexSnapshot(snapshotJSON string, allowed []string) string {
+	if len(allowed) == 0 {
+		return snapshotJSON
+	}
+	var items []reactToolIndexItem
+	if err := json.Unmarshal([]byte(snapshotJSON), &items); err != nil {
+		return "[]"
+	}
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		allowedSet[strings.TrimSpace(name)] = true
+	}
+	filtered := make([]reactToolIndexItem, 0, len(items))
+	for _, item := range items {
+		if allowedSet[item.Name] || allowedSet[item.ToolID] {
+			filtered = append(filtered, item)
+		}
+	}
+	data, _ := json.Marshal(filtered)
+	return string(data)
+}
+
+// filterSkillIndexSnapshot 按 agent 白名单过滤 Skill 索引：白名单为空不注入任何 Skill
+// （专家子 Agent 的行为由 system_prompt 主导），非空按 name/skillId 匹配。
+func filterSkillIndexSnapshot(snapshotJSON string, allowed []string) string {
+	if len(allowed) == 0 {
+		return "[]"
+	}
+	var items []reactSkillIndexItem
+	if err := json.Unmarshal([]byte(snapshotJSON), &items); err != nil {
+		return "[]"
+	}
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		allowedSet[strings.TrimSpace(name)] = true
+	}
+	filtered := make([]reactSkillIndexItem, 0, len(items))
+	for _, item := range items {
+		if allowedSet[item.Name] || allowedSet[item.SkillID] {
+			filtered = append(filtered, item)
+		}
+	}
+	data, _ := json.Marshal(filtered)
+	return string(data)
+}

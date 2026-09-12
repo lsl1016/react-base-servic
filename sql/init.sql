@@ -108,6 +108,34 @@ CREATE TABLE IF NOT EXISTS `tblLlmSkill` (
     INDEX `idx_caller_status` (`caller_key`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM技能表';
 
+-- 子 Agent 定义表（注册类资源：主 Agent 经 delegate_agent 工具委派子任务，子 run 隔离执行）
+-- description 是委派质量的生命线：建议包含「适用问题类型 + 不适用边界」两段
+CREATE TABLE IF NOT EXISTS `tblLlmAgent` (
+    `id`              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `agent_id`        VARCHAR(64)  NOT NULL COMMENT 'Agent唯一标识(agent_前缀UUID)',
+    `agent_key`       VARCHAR(64)  NOT NULL COMMENT '工具名级标识(如 dba-agent, delegate_agent 入参)',
+    `name`            VARCHAR(128) NOT NULL COMMENT '展示名',
+    `description`     TEXT         NOT NULL COMMENT '给主LLM看的委派说明(何时派给谁,对应 when_to_use)',
+    `caller_key`      VARCHAR(32)  NOT NULL COMMENT '所属caller(default=全caller可用)',
+    `route_values`    VARCHAR(256) NOT NULL DEFAULT '[]' COMMENT '路由路径(JSON数组)',
+    `system_prompt`   MEDIUMTEXT   NOT NULL COMMENT '子Agent系统提示词(正文)',
+    `model_key`       VARCHAR(64)  DEFAULT NULL COMMENT '模型种类(空=继承父run当前模型)',
+    `model_version`   VARCHAR(128) DEFAULT NULL COMMENT '模型版本(空=按model_key解析默认)',
+    `tools_json`      VARCHAR(1024) NOT NULL DEFAULT '[]' COMMENT '业务工具名白名单(JSON数组,空=继承caller全部可见工具)',
+    `skills_json`     VARCHAR(1024) NOT NULL DEFAULT '[]' COMMENT 'Skill名白名单(JSON数组,空=不注入skill索引)',
+    `max_steps`       INT          NOT NULL DEFAULT 8 COMMENT '子run步数上限(默认小于主run)',
+    `permission_mode` VARCHAR(16)  NOT NULL DEFAULT 'inherit' COMMENT '权限模式: inherit/auto/confirm/confirm_risky(P2生效)',
+    `status`          TINYINT      NOT NULL DEFAULT 1 COMMENT '状态: 0=禁用 1=启用',
+    `created_by`      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '创建人',
+    `updated_by`      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '更新人',
+    `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted_at`      BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '删除标记(0=未删除)',
+    UNIQUE KEY `uk_agent_id` (`agent_id`),
+    UNIQUE KEY `uk_caller_agent` (`caller_key`, `agent_key`),
+    INDEX `idx_caller_route` (`caller_key`, `route_values`(255))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM子Agent定义表';
+
 -- MCP 连接注册表（管理接口登记的 MCP 服务器；启动时拉起客户端并同步工具进 tblLlmTool）
 CREATE TABLE IF NOT EXISTS `tblLlmMcpServer` (
     `id`                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
@@ -262,12 +290,21 @@ CREATE TABLE IF NOT EXISTS `tblLlmReactRun` (
     `cache_read_tokens`         INT          NOT NULL DEFAULT 0 COMMENT '累计缓存读token',
     `cache_create_tokens`       INT          NOT NULL DEFAULT 0 COMMENT '累计缓存写token',
     `error_message`             TEXT         COMMENT '失败原因',
+    `parent_run_id`             VARCHAR(64)  DEFAULT NULL COMMENT '父run ID(delegate_agent子run指向父,外层run为NULL)',
+    `agent_path`                VARCHAR(256) DEFAULT NULL COMMENT 'Agent路径(如main/ops-agent,外层run为NULL)',
     `created_at`                DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`                DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     UNIQUE KEY `uk_run_id` (`run_id`),
     INDEX `idx_session_state` (`session_id`, `state`),
-    INDEX `idx_session_created` (`session_id`, `created_at`)
+    INDEX `idx_session_created` (`session_id`, `created_at`),
+    INDEX `idx_parent_run` (`parent_run_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReAct运行表';
+
+-- 存量环境增量迁移（新环境由上方建表语句直接包含）：
+-- ALTER TABLE `tblLlmReactRun`
+--     ADD COLUMN `parent_run_id` VARCHAR(64) DEFAULT NULL COMMENT '父run ID(delegate_agent子run指向父,外层run为NULL)' AFTER `error_message`,
+--     ADD COLUMN `agent_path`    VARCHAR(256) DEFAULT NULL COMMENT 'Agent路径(如main/ops-agent,外层run为NULL)' AFTER `parent_run_id`,
+--     ADD INDEX `idx_parent_run` (`parent_run_id`);
 
 -- ReAct 消息表（run 内 seq 递增；content_json 存 modelMessage 与 toolMeta）
 CREATE TABLE IF NOT EXISTS `tblLlmReactMessage` (

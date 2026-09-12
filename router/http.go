@@ -5,6 +5,7 @@ import (
 
 	"react-base-service/components"
 	"react-base-service/conf"
+	"react-base-service/controllers/http/agent"
 	"react-base-service/controllers/http/apikey"
 	"react-base-service/controllers/http/attachment"
 	"react-base-service/controllers/http/caller"
@@ -123,6 +124,17 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		skillGroup.POST("/delete", skill.DeleteSkill)
 		skillGroup.POST("/list", skill.ListSkills)
 		skillGroup.POST("/detail", skill.GetSkillDetail)
+	}
+
+	// 子 Agent 管理接口（delegate_agent 委派的注册表；Markdown 导入见 /agent/import）
+	agentGroup := router.Group("/agent")
+	{
+		agentGroup.POST("/create", agent.CreateAgent)
+		agentGroup.POST("/update", agent.UpdateAgent)
+		agentGroup.POST("/delete", agent.DeleteAgent)
+		agentGroup.POST("/list", agent.ListAgents)
+		agentGroup.POST("/detail", agent.GetAgentDetail)
+		agentGroup.POST("/import", agent.ImportAgent)
 	}
 
 	// Tool 管理接口

@@ -283,3 +283,21 @@ var ErrorPythonScriptUnsafe = base.Error{
 	ErrNo:  6070003,
 	ErrMsg: "Python脚本校验失败: %s",
 }
+
+// 子 Agent 相关错误 6090xxx
+var ErrorAgentNotFound = base.Error{
+	ErrNo:  6090001,
+	ErrMsg: "子Agent不存在: %s",
+}
+var ErrorAgentDuplicate = base.Error{
+	ErrNo:  6090002,
+	ErrMsg: "同一调用方下 agent_key 已存在: callerKey=%s, agentKey=%s",
+}
+var ErrorAgentKeyInvalid = base.Error{
+	ErrNo:  6090003,
+	ErrMsg: "agent_key 仅允许字母、数字、下划线和中划线: %s",
+}
+var ErrorAgentImportInvalid = base.Error{
+	ErrNo:  6090004,
+	ErrMsg: "Agent 定义文件非法: %s",
+}

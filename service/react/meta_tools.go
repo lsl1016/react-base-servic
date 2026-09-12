@@ -37,6 +37,9 @@ const (
 	metaToolInspectAttachment = "inspect_attachment"
 	// metaToolCreatePlan 提交分步执行计划，等待用户在前端确认后执行（第一期：确认交互闭环）。
 	metaToolCreatePlan = "create_plan"
+	// metaToolDelegateAgent 把子任务委派给注册表中的专家子 Agent（隔离子 run 执行，结果回填父循环）。
+	// 描述按 caller 可见 agent 清单动态渲染，主 LLM 由此"发现"子代理（OH TaskToolSet 模式）。
+	metaToolDelegateAgent = "delegate_agent"
 	// 长期记忆三工具：memory.enabled 开启时注册（见 memory.go）。
 	metaToolMemoryList  = "memory_list"
 	metaToolMemoryRead  = "memory_read"
@@ -46,7 +49,7 @@ const (
 // isInternalMetaTool 判断工具名是否属于 Runtime 内置 Meta Tool，内置工具不走外部工具注册表。
 func isInternalMetaTool(name string) bool {
 	switch name {
-	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite:
+	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolDelegateAgent, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite:
 		return true
 	default:
 		return false
@@ -79,6 +82,16 @@ func internalMetaToolDefinitions() []llm.ToolDefinition {
 	// memory.enabled=true 时注册长期记忆三工具（list/read/write），关闭时模型不可见。
 	if conf.CustomConf.LLM.React.Memory.MemoryEnabled() {
 		definitions = append(definitions, memoryToolDefinitions()...)
+	}
+	return definitions
+}
+
+// runtimeToolDefinitions 计算一个 run 的完整工具声明集（含 delegate_agent 动态渲染），
+// 供引擎每轮装配与 run/delegate 入口 token 检查两处共用，避免口径漂移。
+func runtimeToolDefinitions(req *runtimeRequest, profile ExecutionProfile) []llm.ToolDefinition {
+	definitions := internalMetaToolDefinitionsForType(req.payload.Type)
+	if profile.AllowSubagent && req.delegationAllowed() {
+		definitions = append(definitions, delegateAgentToolDefinition(req.agents))
 	}
 	return definitions
 }
@@ -337,6 +350,8 @@ func (s *reactEngineState) executeInternalToolContent(call llm.ToolCall, step in
 		return noToolMeta(s.updateTodos(call, step))
 	case metaToolCreatePlan:
 		return noToolMeta(executeCreatePlan(s.sessionID, s.runID, call.Input))
+	case metaToolDelegateAgent:
+		return noToolMeta(s.executeDelegateAgent(call, step))
 	case metaToolResolveAsyncTask:
 		return noToolMeta(s.resolveAsyncTask(call.Input))
 	case metaToolGetAsyncTask:

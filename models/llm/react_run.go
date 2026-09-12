@@ -23,36 +23,40 @@ const (
 )
 
 type ReactRun struct {
-	ID                      uint      `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
-	RunID                   string    `json:"runId" gorm:"column:run_id;not null"`
-	SessionID               string    `json:"sessionId" gorm:"column:session_id;not null"`
-	UserName                string    `json:"userName" gorm:"column:user_name;not null"`
-	CallerKey               string    `json:"callerKey" gorm:"column:caller_key;not null"`
-	RouteValues             string    `json:"routeValues" gorm:"column:route_values;not null;default:''"`
-	State                   string    `json:"state" gorm:"column:state;not null"`
-	StepIndex               int       `json:"stepIndex" gorm:"column:step_index;not null;default:0"`
-	MaxSteps                int       `json:"maxSteps" gorm:"column:max_steps;not null"`
-	ModelKey                string    `json:"modelKey" gorm:"column:model_key"`
-	ModelVersion            string    `json:"modelVersion" gorm:"column:model_version"`
-	ApiKey                  string    `json:"apiKey" gorm:"column:api_key"`
-	ControlContextJSON      string    `json:"controlContextJson" gorm:"column:control_context_json;type:mediumtext"`
-	LLMContextJSON          string    `json:"llmContextJson" gorm:"column:llm_context_json;type:mediumtext"`
-	ToolIndexSnapshotJSON   string    `json:"toolIndexSnapshotJson" gorm:"column:tool_index_snapshot_json;type:mediumtext"`
-	ActiveToolIDs           string    `json:"activeToolIds" gorm:"column:active_tool_ids;type:text"`
-	ActiveToolDefsJSON      string    `json:"activeToolDefsJson" gorm:"column:active_tool_defs_json;type:mediumtext"`
-	SkillsIndexSnapshotJSON string    `json:"skillsIndexSnapshotJson" gorm:"column:skills_index_snapshot_json;type:mediumtext"`
-	LoadedSkillIDs          string    `json:"loadedSkillIds" gorm:"column:loaded_skill_ids;type:text"`
-	PendingToolUseIDs       string    `json:"pendingToolUseIds" gorm:"column:pending_tool_use_ids;type:text"`
-	TodoStateJSON           string    `json:"todoStateJson" gorm:"column:todo_state_json;type:text"`
-	TotalInputTokens        int       `json:"totalInputTokens" gorm:"column:total_input_tokens;not null;default:0"`
-	TotalOutputTokens       int       `json:"totalOutputTokens" gorm:"column:total_output_tokens;not null;default:0"`
-	LastInputTokens         int       `json:"lastInputTokens" gorm:"column:last_input_tokens;not null;default:0"`
-	LastOutputTokens        int       `json:"lastOutputTokens" gorm:"column:last_output_tokens;not null;default:0"`
-	CacheReadTokens         int       `json:"cacheReadTokens" gorm:"column:cache_read_tokens;not null;default:0"`
-	CacheCreateTokens       int       `json:"cacheCreateTokens" gorm:"column:cache_create_tokens;not null;default:0"`
-	ErrorMessage            string    `json:"errorMessage" gorm:"column:error_message;type:text"`
-	CreatedAt               time.Time `json:"createdAt" gorm:"column:created_at"`
-	UpdatedAt               time.Time `json:"updatedAt" gorm:"column:updated_at"`
+	ID                      uint   `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
+	RunID                   string `json:"runId" gorm:"column:run_id;not null"`
+	SessionID               string `json:"sessionId" gorm:"column:session_id;not null"`
+	UserName                string `json:"userName" gorm:"column:user_name;not null"`
+	CallerKey               string `json:"callerKey" gorm:"column:caller_key;not null"`
+	RouteValues             string `json:"routeValues" gorm:"column:route_values;not null;default:''"`
+	State                   string `json:"state" gorm:"column:state;not null"`
+	StepIndex               int    `json:"stepIndex" gorm:"column:step_index;not null;default:0"`
+	MaxSteps                int    `json:"maxSteps" gorm:"column:max_steps;not null"`
+	ModelKey                string `json:"modelKey" gorm:"column:model_key"`
+	ModelVersion            string `json:"modelVersion" gorm:"column:model_version"`
+	ApiKey                  string `json:"apiKey" gorm:"column:api_key"`
+	ControlContextJSON      string `json:"controlContextJson" gorm:"column:control_context_json;type:mediumtext"`
+	LLMContextJSON          string `json:"llmContextJson" gorm:"column:llm_context_json;type:mediumtext"`
+	ToolIndexSnapshotJSON   string `json:"toolIndexSnapshotJson" gorm:"column:tool_index_snapshot_json;type:mediumtext"`
+	ActiveToolIDs           string `json:"activeToolIds" gorm:"column:active_tool_ids;type:text"`
+	ActiveToolDefsJSON      string `json:"activeToolDefsJson" gorm:"column:active_tool_defs_json;type:mediumtext"`
+	SkillsIndexSnapshotJSON string `json:"skillsIndexSnapshotJson" gorm:"column:skills_index_snapshot_json;type:mediumtext"`
+	LoadedSkillIDs          string `json:"loadedSkillIds" gorm:"column:loaded_skill_ids;type:text"`
+	PendingToolUseIDs       string `json:"pendingToolUseIds" gorm:"column:pending_tool_use_ids;type:text"`
+	TodoStateJSON           string `json:"todoStateJson" gorm:"column:todo_state_json;type:text"`
+	TotalInputTokens        int    `json:"totalInputTokens" gorm:"column:total_input_tokens;not null;default:0"`
+	TotalOutputTokens       int    `json:"totalOutputTokens" gorm:"column:total_output_tokens;not null;default:0"`
+	LastInputTokens         int    `json:"lastInputTokens" gorm:"column:last_input_tokens;not null;default:0"`
+	LastOutputTokens        int    `json:"lastOutputTokens" gorm:"column:last_output_tokens;not null;default:0"`
+	CacheReadTokens         int    `json:"cacheReadTokens" gorm:"column:cache_read_tokens;not null;default:0"`
+	CacheCreateTokens       int    `json:"cacheCreateTokens" gorm:"column:cache_create_tokens;not null;default:0"`
+	ErrorMessage            string `json:"errorMessage" gorm:"column:error_message;type:text"`
+	// ParentRunID 非空表示这是 delegate_agent 委派出的子 run，指向父 run；外层 run 为空。
+	ParentRunID string `json:"parentRunId" gorm:"column:parent_run_id;default:null"`
+	// AgentPath 是多 Agent 事件归属路径（如 main/ops-agent）；外层 run 为空（事件侧缺省 main）。
+	AgentPath string    `json:"agentPath" gorm:"column:agent_path;default:null"`
+	CreatedAt time.Time `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt time.Time `json:"updatedAt" gorm:"column:updated_at"`
 }
 
 func (r *ReactRun) TableName() string {
@@ -140,6 +144,26 @@ func GetLatestReactRunBySessionIDWithDB(ctx *gin.Context, db *gorm.DB, sessionID
 	var run ReactRun
 	err := db.Model(&ReactRun{}).WithContext(ctx).
 		Where("session_id = ?", sessionID).
+		Order("created_at DESC, id DESC").First(&run).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return &run, nil
+}
+
+// outerRunCondition 是外层 run（非 delegate 子 run）的过滤条件：
+// 子 run 不参与「会话并发检查 / 上一 run 状态继承 / 外层历史装配」。
+const outerRunCondition = "(parent_run_id IS NULL OR parent_run_id = '')"
+
+// GetLatestOuterReactRunBySessionIDWithDB 查询会话最近一个外层 run（排除委派子 run），
+// 供外层 run 启动时继承 todo / 已加载工具状态。
+func GetLatestOuterReactRunBySessionIDWithDB(ctx *gin.Context, db *gorm.DB, sessionID string) (*ReactRun, error) {
+	var run ReactRun
+	err := db.Model(&ReactRun{}).WithContext(ctx).
+		Where("session_id = ? AND "+outerRunCondition, sessionID).
 		Order("created_at DESC, id DESC").First(&run).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
