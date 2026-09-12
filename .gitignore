@@ -3,7 +3,6 @@
 # Binaries for programs and plugins
 *.exe
 *.exe~
-web/sdk/package-lock.json
 *.dll
 *.so
 *.dylib
@@ -51,7 +50,9 @@ react-base-service
 /.cache/
 /docs/python链路代码逻辑与数据流.md
 /AGENTS.md
-/web/sdk/dist/
+/web/sdk/dist/*
+# 占位文件入库：保证纯 go build 在无 SDK 构建产物的环境可过（embed 匹配非空）
+!/web/sdk/dist/.gitkeep
 /scripts/rag/
 *.log.*
 /docs/backups/
