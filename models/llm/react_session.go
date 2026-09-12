@@ -15,6 +15,9 @@ import (
 
 const (
 	ReactSessionTypeChat = "chat"
+	// ReactSessionTypeReflection 是记忆自动整理（reflection）专用会话类型：
+	// 工具集仅限 memory 三工具，历史列表默认不展示（显式传 type=reflection 可查）。
+	ReactSessionTypeReflection = "reflection"
 
 	ReactSessionStateActive   = "active"
 	ReactSessionStateArchived = "archived"

@@ -87,3 +87,12 @@ func TestOwnerScopeKeyStable(t *testing.T) {
 		t.Fatalf("different owner types must not collide")
 	}
 }
+
+func TestItemHasLockedTag(t *testing.T) {
+	if !ItemHasLockedTag("偏好,locked,报表") {
+		t.Fatalf("locked tag should be detected")
+	}
+	if ItemHasLockedTag("偏好,lockeddown,报表") || ItemHasLockedTag("mylocked") || ItemHasLockedTag("") {
+		t.Fatalf("locked detection must be exact tag match")
+	}
+}

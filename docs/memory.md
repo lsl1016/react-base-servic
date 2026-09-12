@@ -1,9 +1,10 @@
 # 长期记忆模块设计（Long-Term Memory）
 
-> 状态：P1 基础闭环、P2 审计与管理面已实现（feature/memory 分支）。
+> 状态：P1 基础闭环、P2 审计与管理面、P3 Reflection 自动整理已实现（feature/memory 分支）。
 > P1：建表 DDL、模型层、常驻+目录注入、memory_list/memory_read/memory_write 三工具、`llm.react.memory` 配置开关与单元测试。
 > P2：统一写核心（service/memory，引擎与管理面共用）、/react/memory/* 管理接口（含回滚）、写入敏感信息正则拦截、/metrics 记忆指标。
-> P3（reflection）、P4（向量检索）待实施。
+> P3：compact_end 触发的异步受限子 run（五阶段整理、写入限额、locked 只读、冷却、指标），默认关闭、灰度开启。
+> P4（向量检索）待实施。
 > 目标：为 ReAct 基座补上**跨会话长期记忆**能力——会话结束时沉淀事实与偏好，新会话开始时按需注入，并由后台整理任务持续维护。
 >
 > 设计蓝本：Letta Code 的 MemFS 记忆系统（`C:\Users\keke\Desktop\xm\letta-code\docs\memory-system-design.md`，
@@ -221,20 +222,30 @@ run 初始化时按 **caller_user → caller** 两级合并解析（caller 级�
 
 > 只记稳定事实与明确偏好，不记一次性的任务上下文；宁可少写不写错；用户明确说"忘记"时执行 delete 并给 reason。
 
-## 7. Reflection：后台整理（第三阶段）
+## 7. Reflection：后台整理（P3 已实现）
 
 借鉴 Letta 的 reflection（sleeptime）机制：**触发器挂在压缩事件上**（Letta 默认 trigger 即 compaction-event，与现有 `compact_end` 事件天然对齐）。
 
-### 7.1 触发链路
+### 7.1 触发链路（实现于 `service/react/memory_reflection.go`）
 
 ```text
-engine 发出 compact_end
-  → memory reflection 判定（配置开关 + 冷却期，如同一 session 1 小时内至多 1 次）
-  → 异步派生一个 reflection run：
-      session_type = 'reflection'（复用 tblLlmReactSession，历史列表默认隐藏）
-      工具集白名单 = memory_list / memory_read / memory_write（仅此三个）
-      上下文 = <memory> 注入块 + 压缩摘要 + 被压缩覆盖的近期消息（CoveredThrough 引用区间）
-  → 整理产物全部经 memory_write 落库（source=reflection，reason 必填）
+engine 发出 compact_end（maybeCompactContext 尾部）
+  → memory reflection 判定（memory.enabled + reflection.enabled + 冷却期 + 防自触发）
+  → 异步派生一个 reflection run（goroutine，父 context 为 Background，生命周期独立于触发连接）：
+      session_type = 'reflection'（独立新会话；历史列表默认隐藏，显式传 type=reflection 可查）
+      工具集 = 仅 memory_list / memory_read / memory_write（定义裁剪 + ExecutionProfile 双重拦截，
+               ExecutionProfile 新增 AllowAnalysisTools 开关，reflection 下 python_exec 等分析工具也不可用）
+      上下文 = <memory> 注入块（run 初始化自动装配）+ 压缩摘要 + 被压缩掉的原始消息转录
+               （压缩时刻直接取内存中的 compactPart，从最近往前截尾，单条 800 字、总量 transcript_char_limit）
+      写入 = 统一写核心 ApplyMutation（source=reflection，reason 必填，敏感拦截同样生效），
+             单次写操作 ≤ max_writes_per_run，tags 含 locked 的条目只读（RespectLocked）
+  → 失败静默重试一次，终态打 react_memory_reflection_total{status=triggered/cooldown_skipped/success/error}
+```
+
+实现取舍（相对设计初稿）：
+- 转录取内存中被压缩的原始消息而非回读 CoveredThrough 区间——压缩时刻原文就在手上，省一次回库且语义精确；
+- 冷却表为进程内 map（懒清理）——重启丢失冷却最坏导致多触发一次，不值得为它加表；
+- reflection run 复用完整 run 生命周期（事件持久化、优雅停机、指标），仅 EventWriter 换成无头实现（丢弃实时事件、error 落日志），回放页照常可用。
   → 失败静默重试一次，再失败仅记日志，绝不影响主会话
 ```
 
@@ -265,9 +276,10 @@ llm:
       indexMaxItems: 64            # 按需层目录注入条数上限
       allowUserScope: true         # 是否启用 caller_user 维度（false 则全员共享 caller 级记忆）
       reflection:
-        enabled: false             # 第三阶段默认关
-        cooldownMinutes: 60        # 同一 session 触发冷却
-        maxWritesPerRun: 20        # 单次整理写入上限，防失控
+        enabled: false                 # 默认关，灰度开启
+        cooldown_minutes: 60           # 同一 session 触发冷却（进程内冷却表）
+        max_writes_per_run: 20         # 单次整理写入上限，防失控
+        transcript_char_limit: 16000   # 被压缩原文转录注入上限（取最近部分）
 ```
 
 ## 9. 管理面与可观测（P2 已实现）
@@ -300,7 +312,7 @@ llm:
 | --- | --- | --- | --- |
 | P1 基础闭环 | 建表、模型层、常驻+目录注入、memory_list/read/write 三工具、配置开关、单测 | 记忆自管可用，playground 可验证 | 无 |
 | P2 审计与管理面 ✅ | 统一写核心（service/memory）、/react/memory/* 六接口（含 create 播种与 rollback）、写入敏感词拦截、/metrics 记忆指标 | 运营可治理 | P1 |
-| P3 Reflection | compact_end 触发链路、五阶段提示词、受限工具集 run、冷却与限额 | 自动整理上线（默认关，灰度开） | P1/P2 |
+| P3 Reflection ✅ | compact_end 触发链路、五阶段提示词、受限工具集 run、冷却与限额、locked 只读、指标；E2E 实测含重复条目合并 | 自动整理上线（默认关，灰度开） | P1/P2 |
 | P4 检索增强 | keyword → 向量检索（`description` 嵌入），配合 feature/RAG 分支的向量基础设施 | 大规模按需层可用 | P1，RAG 基础设施 |
 
 P1 验收标准：同一 caller+user 的新会话能复现上一会话沉淀的偏好（端到端手测脚本）；关闭开关后行为与现状完全一致（零回归）；记忆为空时 token 消耗与现状一致。

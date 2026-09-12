@@ -49,6 +49,9 @@ type MutationInput struct {
 	CreatedBy string
 	// AllowedOwnerKeys 是可操作的记忆空间集合（OwnerScopeKey）；nil 表示不限制（管理面）。
 	AllowedOwnerKeys map[string]struct{}
+	// RespectLocked 为 true 时，tags 含 locked 的既有条目视为只读（update/delete/收敛合并均拒绝）。
+	// reflection 整理开启此约束，管理面不开启（保留最终干预权）。
+	RespectLocked bool
 }
 
 // OwnerScopeKey 生成记忆空间的集合键，供作用域校验复用（引擎与写核心必须同构）。
@@ -231,17 +234,21 @@ func mutateCreate(ctx *gin.Context, tx *gorm.DB, op *MutationInput, cfg conf.Rea
 		return nil, err
 	}
 	if existing != nil {
+		if op.RespectLocked && ItemHasLockedTag(existing.Tags) {
+			return nil, fmt.Errorf("记忆 #%d 带 locked 标签（只读），本次操作被拒绝", existing.ID)
+		}
 		// 幂等收敛：同一事实重复写入转为更新（软删条目同时复活），reason 标注收敛语义。
 		convOp := &MutationInput{
-			ItemID:      existing.ID,
-			Layer:       firstNonEmpty(op.Layer, existing.Layer),
-			Title:       op.Title,
-			Content:     op.Content,
-			Description: op.Description,
-			Tags:        op.Tags,
-			Reason:      "create 命中同指纹条目，收敛为更新；" + op.Reason,
-			Source:      op.Source,
-			CreatedBy:   op.CreatedBy,
+			ItemID:        existing.ID,
+			Layer:         firstNonEmpty(op.Layer, existing.Layer),
+			Title:         op.Title,
+			Content:       op.Content,
+			Description:   op.Description,
+			Tags:          op.Tags,
+			Reason:        "create 命中同指纹条目，收敛为更新；" + op.Reason,
+			Source:        op.Source,
+			CreatedBy:     op.CreatedBy,
+			RespectLocked: op.RespectLocked,
 		}
 		result, updateErr := applyUpdate(ctx, tx, existing, convOp, cfg, true)
 		if updateErr != nil {
@@ -415,8 +422,24 @@ func loadItemForMutation(ctx *gin.Context, tx *gorm.DB, op *MutationInput, itemI
 			return nil, fmt.Errorf("记忆 #%d 不在当前作用域内，无权操作", itemID)
 		}
 	}
+	if op.RespectLocked && ItemHasLockedTag(item.Tags) {
+		return nil, fmt.Errorf("记忆 #%d 带 locked 标签（只读），本次操作被拒绝", itemID)
+	}
 	return &item, nil
 }
+
+// ItemHasLockedTag 判断 tags 是否含 locked（用户钉死的条目，reflection 只读）。
+func ItemHasLockedTag(tags string) bool {
+	for _, part := range strings.Split(tags, ",") {
+		if strings.TrimSpace(part) == memoryLockedTag {
+			return true
+		}
+	}
+	return false
+}
+
+// memoryLockedTag 是只读保护标签名。
+const memoryLockedTag = "locked"
 
 // RollbackRevision 把条目回滚到指定修订的 before 快照：以 rollback 动作反向提交一条新修订，
 // 修订流水只增不改；回滚 delete 修订可复活条目，create 修订没有前置状态、拒绝回滚。

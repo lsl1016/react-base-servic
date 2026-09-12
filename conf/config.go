@@ -44,6 +44,9 @@ const (
 	defaultReactMemoryResidentBudgetChars   = 2000
 	defaultReactMemoryIndexMaxItems         = 64
 	defaultReactMemoryDetachedMaxItems      = 500
+	defaultReactMemoryReflectionCooldownMin = 60
+	defaultReactMemoryReflectionMaxWrites   = 20
+	defaultReactMemoryReflectionTranscript  = 16000
 )
 
 // ReactRuntimeConfig ReAct 运行时配置，只承载线上需要按模型和成本调整的策略参数。
@@ -90,6 +93,29 @@ type ReactMemoryConfig struct {
 	// AllowUserScope 控制是否启用 caller_user 维度记忆；未配置时默认 true。
 	// false 时全部记忆收敛到 caller 维度（同 caller 用户共享）。
 	AllowUserScope *bool `yaml:"allow_user_scope"`
+	// Reflection 控制压缩事件后的自动整理（后台受限子 run）。
+	Reflection ReactMemoryReflectionConfig `yaml:"reflection"`
+}
+
+// ReactMemoryReflectionConfig 控制 reflection：压缩（compact_end）后异步派生受限子 run，
+// 审阅被压缩的近期对话并整理记忆；写入走统一写核心（source=reflection）。
+type ReactMemoryReflectionConfig struct {
+	// Enabled 控制是否启用自动整理；未配置时默认 false。
+	Enabled *bool `yaml:"enabled"`
+	// CooldownMinutes 是同一 session 两次 reflection 的最小间隔（进程内冷却表）。
+	CooldownMinutes int `yaml:"cooldown_minutes"`
+	// MaxWritesPerRun 是单次 reflection 允许的记忆写操作上限（create/update/delete 合计）。
+	MaxWritesPerRun int `yaml:"max_writes_per_run"`
+	// TranscriptCharLimit 是注入给 reflection 的被压缩原文转录的字符上限（取最近部分）。
+	TranscriptCharLimit int `yaml:"transcript_char_limit"`
+}
+
+// ReflectionEnabled 解析 reflection.enabled：未配置时默认 false。
+func (c ReactMemoryReflectionConfig) ReflectionEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
 }
 
 // MemoryEnabled 解析 memory.enabled：未配置时默认 false。
@@ -183,7 +209,7 @@ type TCustom struct {
 // MCPConfig 声明 MCP 客户端：servers 的 kind 必须命中代码内适配器白名单。
 type MCPConfig struct {
 	// CallerKey 是 MCP 工具同步进注册表时挂载的调用方；为空则不启用 MCP。
-	CallerKey string         `yaml:"caller_key"`
+	CallerKey string          `yaml:"caller_key"`
 	Servers   []MCPServerConf `yaml:"servers"`
 	// AllowPrivateEndpoint 允许连接环回/私网 MCP 端点（默认拒绝，SSRF 防护）。
 	// 仅本机开发/演示环境开启；生产环境必须保持 false。
@@ -349,6 +375,17 @@ func GetReactRuntimeConfig() ReactRuntimeConfig {
 	if memory.DetachedMaxItems <= 0 {
 		memory.DetachedMaxItems = defaultReactMemoryDetachedMaxItems
 	}
+	reflection := memory.Reflection
+	if reflection.CooldownMinutes <= 0 {
+		reflection.CooldownMinutes = defaultReactMemoryReflectionCooldownMin
+	}
+	if reflection.MaxWritesPerRun <= 0 {
+		reflection.MaxWritesPerRun = defaultReactMemoryReflectionMaxWrites
+	}
+	if reflection.TranscriptCharLimit <= 0 {
+		reflection.TranscriptCharLimit = defaultReactMemoryReflectionTranscript
+	}
+	memory.Reflection = reflection
 	cfg.Memory = memory
 
 	models := cfg.Models

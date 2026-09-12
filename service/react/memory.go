@@ -383,6 +383,7 @@ type memoryWriteInput struct {
 
 // executeMemoryWrite 是引擎侧记忆写入口：解析入参、解析作用域后交给统一写核心
 // （service/memory.ApplyMutation，与管理面共用校验/幂等/修订流水/敏感拦截/指标）。
+// reflection run 附加单次写入限额与 locked 条目只读约束。
 func (s *reactEngineState) executeMemoryWrite(input json.RawMessage) (string, bool, error) {
 	var req memoryWriteInput
 	if err := json.Unmarshal(input, &req); err != nil {
@@ -390,6 +391,11 @@ func (s *reactEngineState) executeMemoryWrite(input json.RawMessage) (string, bo
 	}
 
 	cfg := conf.GetReactRuntimeConfig().Memory
+	isReflection := s.req.payload.Type == model.ReactSessionTypeReflection
+	if isReflection && s.memoryWrites >= cfg.Reflection.MaxWritesPerRun {
+		return "", true, fmt.Errorf("本次整理的写操作已达上限（%d 次）：停止写入，直接进入总结阶段", cfg.Reflection.MaxWritesPerRun)
+	}
+
 	scope := resolveMemoryScope(s.req.payload.CallerKey, s.req.userName, cfg.MemoryAllowUserScope())
 	result, err := memoryService.ApplyMutation(s.ctx, memoryService.MutationInput{
 		Action:           req.Action,
@@ -402,13 +408,25 @@ func (s *reactEngineState) executeMemoryWrite(input json.RawMessage) (string, bo
 		Tags:             req.Tags,
 		Reason:           req.Reason,
 		Owner:            scope.writeOwner,
-		Source:           model.MemorySourceModel,
+		Source:           memorySourceForRun(isReflection),
 		CreatedBy:        s.runID,
 		AllowedOwnerKeys: scope.allowedKeys,
+		RespectLocked:    isReflection,
 	})
 	if err != nil {
 		return "", true, err
 	}
+	if isReflection {
+		s.memoryWrites++
+	}
 	data, _ := json.Marshal(result)
 	return string(data), false, nil
+}
+
+// memorySourceForRun 按会话类型区分写入来源：reflection 子 run 记 source=reflection，主对话记 model。
+func memorySourceForRun(isReflection bool) string {
+	if isReflection {
+		return model.MemorySourceReflection
+	}
+	return model.MemorySourceModel
 }

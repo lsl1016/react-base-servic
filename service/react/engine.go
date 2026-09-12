@@ -59,6 +59,8 @@ type reactEngineState struct {
 	prevToolDefFingerprint map[string]string
 	loadedSkillID          map[string]bool
 	todoStateJSON          string
+	// memoryWrites 是当前 run 内成功执行的记忆写操作数，用于 reflection 的单次写入限额。
+	memoryWrites int
 	// pendingAsyncTasks 保存当前 Session 的未完结异步任务，仅在外层 ReAct 中注入模型上下文。
 	pendingAsyncTasks        []model.ReactAsyncTask
 	pendingAsyncTasksHasMore bool
@@ -111,7 +113,7 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 		ctx:                    ctx,
 		runCtx:                 runCtx,
 		req:                    req,
-		profile:                outerExecutionProfile(),
+		profile:                executionProfileForSessionType(req.payload.Type),
 		runID:                  runID,
 		sessionID:              sessionID,
 		client:                 client,
@@ -269,9 +271,13 @@ func (s *reactEngineState) contextMessages() []llm.ChatMessage {
 	return messages
 }
 
-// buildToolDefinitions 根据 ExecutionProfile 暴露工具。
+// buildToolDefinitions 按会话类型暴露工具：reflection 只暴露记忆三工具，其余暴露完整 Meta Tool 集。
+// req 为 nil 时（单测构造的最小引擎状态）回退到完整集合。
 func (s *reactEngineState) buildToolDefinitions() []llm.ToolDefinition {
-	return internalMetaToolDefinitions()
+	if s.req == nil {
+		return internalMetaToolDefinitions()
+	}
+	return internalMetaToolDefinitionsForType(s.req.payload.Type)
 }
 
 func sortedActiveToolNames(tools map[string]model.Tool) []string {

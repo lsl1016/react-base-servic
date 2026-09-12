@@ -135,11 +135,12 @@ func generateMessageID() string {
 	return "msg_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 }
 
-// normalizeSessionType 将未识别的会话类型收敛为默认 chat，避免外部透传非法类型进入存储层。
+// normalizeSessionType 将会话类型收敛到受支持集合；reflection 为内部整理专用类型，
+// 外部传入时不做特殊拒绝（其执行档案仅放行记忆工具，无滥用面）。
 func normalizeSessionType(t string) string {
 	switch strings.TrimSpace(t) {
-	case model.ReactSessionTypeChat:
-		return model.ReactSessionTypeChat
+	case model.ReactSessionTypeChat, model.ReactSessionTypeReflection:
+		return strings.TrimSpace(t)
 	default:
 		return defaultReactSessionType
 	}
@@ -191,7 +192,7 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 		return nil, err
 	}
 	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
-	initialTools := internalMetaToolDefinitions()
+	initialTools := internalMetaToolDefinitionsForType(req.payload.Type)
 	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext)
 	if err := checkEntryInputTokens(initialSystemContent, req.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
 		return nil, err

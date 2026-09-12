@@ -94,4 +94,10 @@ var (
 		Name: "react_memory_resident_chars",
 		Help: "Resident-layer memory content chars by owner type.",
 	}, []string{"owner_type"})
+
+	// MemoryReflectionTotal reflection 自动整理计数（status: triggered/cooldown_skipped/success/error）。
+	MemoryReflectionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "react_memory_reflection_total",
+		Help: "Total memory reflection runs by status.",
+	}, []string{"status"})
 )

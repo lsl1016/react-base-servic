@@ -55,6 +55,12 @@ llm:
       index_max_items: 64
       detached_max_items: 500
       allow_user_scope: true
+      # 自动整理（reflection）：compact_end 后异步派生受限子 run；默认关闭，灰度开启。
+      reflection:
+        enabled: false
+        cooldown_minutes: 60
+        max_writes_per_run: 20
+        transcript_char_limit: 16000
 
 async_task:
   # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转
