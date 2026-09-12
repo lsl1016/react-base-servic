@@ -62,6 +62,12 @@ func CreateAgent(ctx *gin.Context, req *params.CreateAgentReq, createdBy string)
 	if existing != nil {
 		return nil, components.ErrorAgentDuplicate.Sprintf(req.CallerKey, req.AgentKey)
 	}
+	// uk_caller_agent 不含 deleted_at：软删行仍占用唯一键，同 key 重建走复活更新而非插入。
+	if deleted, err := model.GetAgentByCallerAndAgentKeyUnscoped(ctx, req.CallerKey, req.AgentKey); err != nil {
+		return nil, err
+	} else if deleted != nil && deleted.DeletedAt != 0 {
+		return reviveDeletedAgent(ctx, deleted, req, routeValues, toolsJSON, skillsJSON, createdBy)
+	}
 
 	status, err := resolveAgentStatus(req.Status)
 	if err != nil {
@@ -90,6 +96,40 @@ func CreateAgent(ctx *gin.Context, req *params.CreateAgentReq, createdBy string)
 		return nil, err
 	}
 	return agent, nil
+}
+
+// reviveDeletedAgent 用本次定义覆盖软删行并恢复可见（清 deleted_at），沿用原 agent_id。
+func reviveDeletedAgent(ctx *gin.Context, deleted *model.Agent, req *params.CreateAgentReq, routeValues, toolsJSON, skillsJSON []byte, updatedBy string) (*model.Agent, error) {
+	status, err := resolveAgentStatus(req.Status)
+	if err != nil {
+		return nil, err
+	}
+	updates := map[string]interface{}{
+		"name":            req.Name,
+		"description":     req.Description,
+		"route_values":    string(routeValues),
+		"system_prompt":   req.SystemPrompt,
+		"model_key":       strings.TrimSpace(req.ModelKey),
+		"model_version":   strings.TrimSpace(req.ModelVersion),
+		"tools_json":      string(toolsJSON),
+		"skills_json":     string(skillsJSON),
+		"max_steps":       req.MaxSteps,
+		"permission_mode": normalizePermissionMode(req.PermissionMode),
+		"status":          status,
+		"updated_by":      updatedBy,
+		"deleted_at":      0,
+	}
+	if err := model.UpdateAgentByAgentIDUnscoped(ctx, deleted.AgentID, updates); err != nil {
+		return nil, err
+	}
+	revived, err := model.GetAgentByAgentID(ctx, deleted.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	if revived == nil {
+		return nil, components.ErrorAgentNotFound.Sprintf(deleted.AgentID)
+	}
+	return revived, nil
 }
 
 func UpdateAgent(ctx *gin.Context, req *params.UpdateAgentReq) (*model.Agent, error) {

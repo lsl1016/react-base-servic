@@ -99,6 +99,31 @@ func GetAgentByCallerAndAgentKey(ctx *gin.Context, callerKey, agentKey string) (
 	return &agent, nil
 }
 
+// GetAgentByCallerAndAgentKeyUnscoped 含软删行按 caller + agent_key 定位：
+// uk_caller_agent 不含 deleted_at，重建同 key agent 时需查软删行做复活更新。
+func GetAgentByCallerAndAgentKeyUnscoped(ctx *gin.Context, callerKey, agentKey string) (*Agent, error) {
+	var agent Agent
+	err := helpers.MysqlClientLLM.Unscoped().Model(&Agent{}).WithContext(ctx).
+		Where("caller_key = ? AND agent_key = ?", callerKey, agentKey).First(&agent).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return &agent, nil
+}
+
+func UpdateAgentByAgentIDUnscoped(ctx *gin.Context, agentID string, updates map[string]interface{}) error {
+	tx := helpers.MysqlClientLLM.Unscoped().Model(&Agent{}).WithContext(ctx).
+		Where("agent_id = ?", agentID).
+		Updates(updates)
+	if tx.Error != nil {
+		return components.ErrorDbUpdate.Wrap(tx.Error)
+	}
+	return nil
+}
+
 func UpdateAgentByAgentID(ctx *gin.Context, agentID string, updates map[string]interface{}) error {
 	tx := helpers.MysqlClientLLM.Model(&Agent{}).WithContext(ctx).
 		Where("agent_id = ?", agentID).

@@ -47,12 +47,8 @@ func TestDelegateAgentE2E(t *testing.T) {
 	conf.InitConf()
 	zlog.InitLog(conf.BasicConf.Log)
 	helpers.InitMysql()
-	t.Cleanup(func() {
-		if db, _ := helpers.MysqlClientLLM.DB(); db != nil {
-			_ = db.Close()
-		}
-		zlog.CloseLogger()
-	})
+	// 注：连接与日志不在单个测试的 Cleanup 里关闭——多个 e2e 测试共享进程级单例，
+	// 先结束的测试关闭会让后续测试失败；测试进程退出时由运行时统一回收。
 	if !conf.CustomConf.LLM.React.SubAgent.SubAgentEnabled() {
 		t.Fatal("llm.react.subagent.enabled 必须为 true（conf/mount/custom.yaml）")
 	}
