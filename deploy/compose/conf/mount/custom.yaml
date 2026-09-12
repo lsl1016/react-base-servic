@@ -47,6 +47,14 @@ llm:
       max_read_limit: 32768
     # playground 页面访问白名单；为空时不限制。
     playground_whitelist: []
+    # 长期记忆（跨会话记忆）：表已在 react-base-mysql 建好；未配置默认关闭。
+    memory:
+      enabled: true
+      resident_max_items: 16
+      resident_budget_chars: 2000
+      index_max_items: 64
+      detached_max_items: 500
+      allow_user_scope: true
 
 async_task:
   # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转

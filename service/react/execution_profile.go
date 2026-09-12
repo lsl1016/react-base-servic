@@ -12,6 +12,7 @@ type ExecutionProfile struct {
 	AllowUserQuestion       bool
 	AllowAsyncTaskTools     bool
 	AllowSkills             bool
+	AllowMemory             bool
 	InjectAsyncTaskReminder bool
 	RestoreOuterHistory     bool
 }
@@ -25,6 +26,7 @@ func outerExecutionProfile() ExecutionProfile {
 		AllowUserQuestion:       true,
 		AllowAsyncTaskTools:     true,
 		AllowSkills:             true,
+		AllowMemory:             conf.CustomConf.LLM.React.Memory.MemoryEnabled(),
 		InjectAsyncTaskReminder: true,
 		RestoreOuterHistory:     true,
 	}

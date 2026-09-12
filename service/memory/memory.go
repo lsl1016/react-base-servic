@@ -454,6 +454,7 @@ func rollbackRevision(ctx *gin.Context, revisionID uint, reason, operator string
 		return nil, fmt.Errorf("修订 #%d 前置快照解析失败: %v", revisionID, err)
 	}
 
+	currentVersion := 0
 	err = model.GetLLMDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var item model.MemoryItem
 		err := tx.Model(&model.MemoryItem{}).WithContext(ctx).
@@ -464,6 +465,7 @@ func rollbackRevision(ctx *gin.Context, revisionID uint, reason, operator string
 			}
 			return components.ErrorDbSelect.Wrap(err)
 		}
+		currentVersion = item.Version
 		before := item
 		updated, err := model.UpdateMemoryItemWithVersionWithDB(ctx, tx, item.ID, 0, map[string]interface{}{
 			"layer":       target.Layer,
@@ -500,7 +502,7 @@ func rollbackRevision(ctx *gin.Context, revisionID uint, reason, operator string
 			"content": target.Content,
 			"state":   target.State,
 		},
-		"version": target.Version + 1,
+		"version": currentVersion + 1,
 		"reason":  reason,
 	}, nil
 }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"react-base-service/components"
@@ -87,18 +88,28 @@ func (r *MemoryRevision) TableName() string {
 	return "tblLlmMemoryRevision"
 }
 
+// buildMemoryOwnerScopeCondition 构造 owners 的 OR 查询条件；state 必须并入每个分支，
+// GORM 的 Where(...).Or(...) 组合不会把先置条件下推进 Or 分支，漏并会把软删条目泄漏进结果。
+func buildMemoryOwnerScopeCondition(owners []MemoryOwner) (string, []interface{}) {
+	conditions := make([]string, 0, len(owners))
+	args := make([]interface{}, 0, len(owners)*3)
+	for _, owner := range owners {
+		conditions = append(conditions, "(owner_type = ? AND owner_key = ? AND state = ?)")
+		args = append(args, owner.OwnerType, owner.OwnerKey, MemoryStateActive)
+	}
+	return strings.Join(conditions, " OR "), args
+}
+
 // FindActiveMemoryItemsByOwners 查询一组记忆空间下的全部 active 条目，按更新时间倒序。
 func FindActiveMemoryItemsByOwners(ctx *gin.Context, owners []MemoryOwner) ([]MemoryItem, error) {
 	if len(owners) == 0 {
 		return []MemoryItem{}, nil
 	}
-	db := helpers.MysqlClientLLM.Model(&MemoryItem{}).WithContext(ctx)
-	query := db.Where("state = ?", MemoryStateActive)
-	for _, owner := range owners {
-		query = query.Or("owner_type = ? AND owner_key = ?", owner.OwnerType, owner.OwnerKey)
-	}
+	condition, args := buildMemoryOwnerScopeCondition(owners)
 	var items []MemoryItem
-	err := query.Order("updated_at DESC").Find(&items).Error
+	err := helpers.MysqlClientLLM.Model(&MemoryItem{}).WithContext(ctx).
+		Where(condition, args...).
+		Order("updated_at DESC").Find(&items).Error
 	if err != nil {
 		return nil, components.ErrorDbSelect.Wrap(err)
 	}
