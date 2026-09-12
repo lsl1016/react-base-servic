@@ -1,0 +1,32 @@
+# 自动部署：push 到 main 后由 GitHub 官方 runner SSH 登录 ECS 执行发布。
+# 依赖仓库 secret：ECS_SSH_KEY（部署专用私钥，公钥已装入 ECS authorized_keys）。
+# 注意：仅由 push/workflow_dispatch 触发，不响应 pull_request，避免公开仓库被恶意 PR 利用。
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只允许一个部署任务，后来的 push 自动取消未完成的前序部署
+concurrency:
+  group: deploy-ecs
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to ECS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 118.31.6.254
+          username: root
+          key: ${{ secrets.ECS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/react-base-service
+            git pull --ff-only
+            docker compose up -d --build
+            docker image prune -f

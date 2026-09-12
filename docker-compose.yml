@@ -9,7 +9,9 @@
 # - mysql/redis 使用本地已有镜像（mysql:8.0 / redis:7-alpine）；
 # - sandbox 由 ./sandbox/Dockerfile 构建（基础镜像 python:3.11-slim，若本地缺失会触发一次拉取）；
 # - MySQL 首次启动自动执行 sql/init.sql 建库；
-# - 服务配置挂载 deploy/compose/conf/mount（容器内网地址），与本机开发的 conf/mount 互不干扰。
+# - 服务配置挂载 deploy/compose/conf/mount（容器内网地址），与本机开发的 conf/mount 互不干扰；
+# - 监控组件（prometheus/loki/promtail/grafana）配置见 deploy/monitoring，
+#   采集全部走 compose 内网；Grafana 管理密码通过 GRAFANA_ADMIN_PASSWORD 覆盖（默认 admin）。
 services:
   mysql:
     image: mysql:8.0
@@ -82,7 +84,60 @@ services:
       retries: 12
       start_period: 15s
 
+  # ===== 监控（方案 A：Prometheus + Loki + Grafana，采集全程内网零公网流量）=====
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    container_name: react-base-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: react-base-loki
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./deploy/monitoring/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.4.2
+    container_name: react-base-promtail
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./deploy/monitoring/promtail.yml:/etc/promtail/config.yml:ro
+      - service_logs:/var/log/service:ro   # 复用业务服务日志卷
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: react-base-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
 volumes:
   mysql_data:
   service_logs:
   service_data:
+  prom_data:
+  loki_data:
+  grafana_data:

@@ -1,0 +1,19 @@
+# Promtail：读取业务服务日志卷（service_logs，挂载为 /var/log/service）推送到 Loki。
+# 轮转后的 app-*.log 由文件名区分，Promtail 按文件名记录读取位点，不会重复采集。
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: react-base-service
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: react-base-service
+          __path__: /var/log/service/*.log
