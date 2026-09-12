@@ -1,0 +1,328 @@
+# 长期记忆模块设计（Long-Term Memory）
+
+> 状态：P1 基础闭环、P2 审计与管理面、P3 Reflection 自动整理已实现（feature/memory 分支）。
+> P1：建表 DDL、模型层、常驻+目录注入、memory_list/memory_read/memory_write 三工具、`llm.react.memory` 配置开关与单元测试。
+> P2：统一写核心（service/memory，引擎与管理面共用）、/react/memory/* 管理接口（含回滚）、写入敏感信息正则拦截、/metrics 记忆指标。
+> P3：compact_end 触发的异步受限子 run（五阶段整理、写入限额、locked 只读、冷却、指标），默认关闭、灰度开启。
+> P4（向量检索）待实施。
+> 目标：为 ReAct 基座补上**跨会话长期记忆**能力——会话结束时沉淀事实与偏好，新会话开始时按需注入，并由后台整理任务持续维护。
+>
+> 设计蓝本：Letta Code 的 MemFS 记忆系统（`C:\Users\keke\Desktop\xm\letta-code\docs\memory-system-design.md`，
+> Apache-2.0，取其**设计**而非代码）与 `letta-code\docs\改造建议.md` 的结论：
+> **ChatGPT 的双层记忆思想 + Mem0 的事实化写入/检索 + Letta 的常驻核心记忆**。
+
+---
+
+## 1. 背景与问题
+
+当前基座的上下文生命周期止于会话内部：
+
+| 现有机制 | 覆盖范围 | 缺口 |
+| --- | --- | --- |
+| 上下文自动压缩（`compact_start` / `compact_end`） | 单会话内，超水位时把早期消息摘要化 | 会话结束，摘要随之失效 |
+| 会话历史回放（`/react/session/events`） | 事后查看，不参与新会话推理 | 新会话无法"想起"旧会话 |
+| 系统提示词 / Skill 摘要注入 | 静态知识，人工维护 | 无法从对话中自动积累 |
+
+带来的实际问题：同一个用户的偏好（称呼、常用格式、业务背景）每次都要重新说明；跨会话的事实（"上次的方案 A 已经被否了"）丢失；caller 想让 agent"越用越懂业务"没有抓手。
+
+## 2. 设计原则
+
+1. **双层记忆**（借鉴 ChatGPT Memory / Letta MemFS 的 system-detached 分层）：
+   - **常驻层（resident）**：少量高价值、必须每次都在场的记忆（用户画像、长期偏好、身份约定），有严格的字符预算，随 system prompt 前缀注入；
+   - **按需层（detached）**：大量历史事实，只注入目录索引，模型通过 `memory_list` / `memory_read` 工具按需读取。
+2. **记忆即事实条目**（借鉴 Mem0）：每条记忆是一个原子条目（一句话可表述的事实/偏好/约定），带 `description` 供检索、带 `reason` 供审计，而非整段自由文本。
+3. **写入有痕**（借鉴 MemFS "每写必 commit"）：任何写入（模型工具写、后台整理写、管理面改）都产生一条不可变的修订记录，可回滚、可审计。
+4. **作用域与现有体系对齐**：记忆的可见范围沿用 caller（+ 可选 user 维度）模型，权限校验复用会话归属校验思路，工具进现有注册表，注入复用 Skill 摘要的注入通道。
+5. **先机制、后智能**：第一阶段只有模型自管写入 + 常驻注入；reflection（后台整理）与向量检索放后面，各自可独立开关。
+
+## 3. 总体架构
+
+```text
+                          ┌──────────────────────────────────────────┐
+                          │              ReAct 运行时                 │
+                          │                                          │
+   run 初始化 ────────────►  system prompt 前缀注入                    │
+   （与 Skill 摘要同通道）    │   <memory> 常驻层全文 + 按需层目录 </memory> │
+                          │                                          │
+                          │   工具循环                                │
+                          │   ├─ memory_list  （按需层目录/过滤）       │
+                          │   ├─ memory_read  （读单条/多条全文）        │
+                          │   └─ memory_write（新建/更新/删除，必填 reason）│
+                          └───────┬──────────────────────┬───────────┘
+                                  │                      │ compact_end 事件
+                                  ▼                      ▼
+                        ┌──────────────┐        ┌──────────────────┐
+                        │ tblLlmMemory │        │ reflection 整理 run │
+                        │     Item     │        │ （异步子 run，受限  │
+                        │ 条目 + 版本号  │        │  工具集，五阶段）   │
+                        └──────┬───────┘        └────────┬─────────┘
+                               │ 每次写入                  │ 也走 memory_write
+                               ▼                         │
+                        ┌──────────────────┐             │
+                        │ tblLlmMemory     │◄────────────┘
+                        │    Revision      │
+                        │ （不可变审计流水） │
+                        └──────────────────┘
+```
+
+两类参与者都只通过 `memory_write` 等工具落库，保证审计流水完整：
+
+- **在线写入**：主对话 run 中模型主动调用（用户说"记住我用的是香港主体"这类显式信号，或模型判断值得沉淀）。
+- **离线整理（reflection）**：压缩事件后异步触发的子 run，审阅近期对话，提炼/合并/淘汰记忆（第三阶段上线）。
+
+## 4. 存储模型
+
+### 4.1 表结构
+
+沿用 `tblLlm` 前缀与 GORM 建模规范（见 `models/llm/`、`sql/init.sql`），新增两张表：
+
+```sql
+-- 记忆条目：一条原子事实。逻辑主键 (owner_type, owner_key, item_key)，item_key 由内容语义哈希生成，
+-- 同一事实重复写入收敛为更新而非新增。
+CREATE TABLE IF NOT EXISTS `tblLlmMemoryItem` (
+  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `owner_type`    VARCHAR(32)  NOT NULL COMMENT '记忆归属维度：caller / caller_user',
+  `owner_key`     VARCHAR(255) NOT NULL COMMENT 'caller:key 或 caller:key|userName 拼接',
+  `layer`         VARCHAR(16)  NOT NULL DEFAULT 'detached' COMMENT 'resident=常驻层 / detached=按需层',
+  `title`         VARCHAR(128) NOT NULL DEFAULT '' COMMENT '短标题，目录索引展示用',
+  `content`       TEXT         NOT NULL COMMENT '记忆正文（一到三句原子事实）',
+  `description`   VARCHAR(512) NOT NULL DEFAULT '' COMMENT '检索描述：什么时候需要这条记忆',
+  `tags`          VARCHAR(512) NOT NULL DEFAULT '' COMMENT '逗号分隔标签，memory_list 过滤用',
+  `source`        VARCHAR(32)  NOT NULL DEFAULT 'model' COMMENT '写入来源：model / reflection / admin',
+  `item_key`      VARCHAR(64)  NOT NULL COMMENT '内容语义指纹（规范化后 SHA-256 前 16 位），幂等去重',
+  `version`       INT          NOT NULL DEFAULT '1' COMMENT '乐观锁版本号，每次修订 +1',
+  `state`         VARCHAR(16)  NOT NULL DEFAULT 'active' COMMENT 'active / deleted（软删）',
+  `last_reason`   VARCHAR(512) NOT NULL DEFAULT '' COMMENT '最近一次修订原因（冗余展示用）',
+  `created_by`    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '触发写入的 runID 或操作人',
+  `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_owner_item` (`owner_type`, `owner_key`, `item_key`),
+  KEY `idx_owner_layer` (`owner_type`, `owner_key`, `layer`, `state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 修订流水：不可变，只插不改。回滚 = 用旧快照反向插入一条新修订。
+CREATE TABLE IF NOT EXISTS `tblLlmMemoryRevision` (
+  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `item_id`      BIGINT UNSIGNED NOT NULL,
+  `action`       VARCHAR(16)  NOT NULL COMMENT 'create / update / delete / rollback',
+  `before_json`  TEXT         NULL COMMENT '变更前快照（create 时为空）',
+  `after_json`   TEXT         NULL COMMENT '变更后快照（delete 时为空）',
+  `reason`       VARCHAR(512) NOT NULL COMMENT '必填：为什么改这条记忆',
+  `source`       VARCHAR(32)  NOT NULL COMMENT 'model / reflection / admin',
+  `created_by`   VARCHAR(64)  NOT NULL COMMENT 'runID 或操作人',
+  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_item` (`item_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### 4.2 作用域（owner）
+
+| owner_type | owner_key 构成 | 适用场景 | 谁可见 |
+| --- | --- | --- | --- |
+| `caller` | `{callerKey}` | 业务方全局约定（产品口径、通用 SOP） | 该 caller 下所有会话 |
+| `caller_user` | `{callerKey}\|{userName}` | 终端用户个人偏好与事实 | 该 caller 下该 userName 的会话 |
+
+run 初始化时按 **caller_user → caller** 两级合并解析（caller 级做公共底座，user 级覆盖同名 `item_key`），与系统提示词 `default` 作用域"由通用到具体"的合并语义一致。不引入 route 维度：记忆的语义（用户偏好/业务事实）天然跨路由，按路由切分会把同一用户割裂成多个失忆副本；确有路由隔离诉求时，用 `tags` 表达。
+
+注入总量控制：常驻层条数上限（默认 16 条）+ 字符预算（默认 2000 字符），超出按 `updated_at` 降序截断并在索引尾部提示"另有 N 条常驻记忆未注入，可用 memory_list 查看"。防止单 caller 无限膨胀撑爆 system prompt。
+
+## 5. 上下文注入
+
+挂载点复用 Skill 摘要注入的同一通道（run 初始化阶段拼 system 前缀，参照 `service/react/meta_tools.go` 的 skill index snapshot 机制）：
+
+```text
+<memory>
+## 关于当前用户的长期记忆（自动维护，可信）
+
+### 常驻
+- [称呼] 用户希望被称为"陈总"（2026-09-01 起）
+- [主体] 公司主体在香港，报表口径用 HKD
+...
+
+### 记忆目录（需要时用 memory_read 按 itemId 读取全文）
+- #12 [偏好] 数据分析结论先给摘要再给图表
+- #15 [背景] 上季度预算方案 A 已被管理层否决
+...
+</memory>
+```
+
+要点：
+
+1. **常驻层全文注入**，每条一行；**按需层只注入目录**（id + title + description 首段），正文必须走 `memory_read`。对应 MemFS 的 `system/` 常驻与 detached 按需检索。
+2. 目录条目上限（默认 64 条），超出部分靠 `memory_list` 分页/过滤。
+3. 记忆为空时整个 `<memory>` 块不出现，不浪费 token。
+4. 注入发生在每次 run 初始化（而非会话创建），保证跨 run 的写入对同会话后续轮次立即可见。
+
+## 6. 工具协议
+
+注册进现有工具体系（`tblLlmTool` `tool_type=client` 的内置工具形态，与 `get_skill` / `create_plan` 同类），受 caller 白名单管控，可通过配置整体关闭。
+
+### memory_list —— 列出/检索记忆
+
+```json
+{ "name": "memory_list", "description": "列出当前作用域的长期记忆（默认按需层全部）",
+  "parameters": {
+    "layer":  "resident | detached | all，默认 detached",
+    "tag":    "按标签过滤，可选",
+    "keyword": "标题/描述关键词过滤，可选（第一阶段为 LIKE 匹配）",
+    "limit":  "默认 20，最大 50" } }
+```
+
+返回：条目数组（id / title / description / tags / layer / updatedAt），不含正文。
+
+### memory_read —— 读取记忆全文
+
+```json
+{ "name": "memory_read",
+  "parameters": { "itemIds": "数组，一次最多 10 条" } }
+```
+
+返回：正文全文 + 版本号 + 来源与最近修订原因。**作用域校验**：owner 不在当前 run 可见范围（caller_user/caller 两级）内的 id 一律拒绝，防止跨用户/跨 caller 编造读取（与会话归属校验同思路）。
+
+### memory_write —— 写入/更新/删除记忆
+
+```json
+{ "name": "memory_write",
+  "parameters": {
+    "action":  "create | update | delete",
+    "itemId":  "update/delete 必填",
+    "version": "update 时读取到的版本号（乐观锁），不传则直接覆盖",
+    "layer":   "resident | detached，create 默认 detached；常驻层写入加倍审慎",
+    "title":   "create/update 必填，≤32 字",
+    "content": "create/update 必填，一到三句原子事实",
+    "retrievalHint": "create/update 必填：什么场景需要想起这条记忆",
+    "tags":    "可选，逗号分隔",
+    "reason":  "必填：为什么写入/修改/删除" } }
+```
+
+> 字段命名说明：检索描述用 `retrievalHint` 而非 `description`——运行时会剥离工具入参顶层的
+> `description`（内置工具的调用展示字段，见 `executeInternalTool` 的 `stripToolDescriptionInput`），
+> 同名字段会被误删。
+
+行为：
+
+- **幂等收敛**：create 时按 `item_key`（规范化 content 的语义指纹）查重，命中未删条目自动转为 update 并合并 layer/tags；
+- **乐观锁**：update 携带读取时的 version，冲突则失败并提示重读（模型重试即可）；
+- **reason 必填**：空则直接校验失败，这是审计链的根；
+- **写入即修订**：每次成功操作插入一条 `tblLlmMemoryRevision`；
+- **常驻层守门**：单 owner 常驻层超上限时写入失败并提示"需先降级一条常驻记忆"（不自动挤占，逼模型显式决策）；
+- **敏感信息拦截**（P2）：title/content/description/reason 命中内置敏感形态（OpenAI/AWS/GitHub 凭证、JWT、私钥块、身份证号、手机号）直接拒绝入库，引擎与管理面同一套拦截（`service/memory.ScanSensitiveContent`）。
+
+### 统一写核心（P2）
+
+引擎工具与管理面接口没有各自的写路径：两者都调 `service/memory.ApplyMutation`（唯一写入口），
+校验、幂等收敛、乐观锁、容量守门、敏感拦截、修订流水与指标打点在此单点维护；
+区别只在 `source`（model/admin）与 `createdBy`（runID/操作人），审计链无旁门。
+
+### 工具说明文案中的写入纪律（system 提示词约束）
+
+在 `memory_write` 的 description 与注入块尾部写明纪律，对应 Letta 的记忆写入协议：
+
+> 只记稳定事实与明确偏好，不记一次性的任务上下文；宁可少写不写错；用户明确说"忘记"时执行 delete 并给 reason。
+
+## 7. Reflection：后台整理（P3 已实现）
+
+借鉴 Letta 的 reflection（sleeptime）机制：**触发器挂在压缩事件上**（Letta 默认 trigger 即 compaction-event，与现有 `compact_end` 事件天然对齐）。
+
+### 7.1 触发链路（实现于 `service/react/memory_reflection.go`）
+
+```text
+engine 发出 compact_end（maybeCompactContext 尾部）
+  → memory reflection 判定（memory.enabled + reflection.enabled + 冷却期 + 防自触发）
+  → 异步派生一个 reflection run（goroutine，父 context 为 Background，生命周期独立于触发连接）：
+      session_type = 'reflection'（独立新会话；历史列表默认隐藏，显式传 type=reflection 可查）
+      工具集 = 仅 memory_list / memory_read / memory_write（定义裁剪 + ExecutionProfile 双重拦截，
+               ExecutionProfile 新增 AllowAnalysisTools 开关，reflection 下 python_exec 等分析工具也不可用）
+      上下文 = <memory> 注入块（run 初始化自动装配）+ 压缩摘要 + 被压缩掉的原始消息转录
+               （压缩时刻直接取内存中的 compactPart，从最近往前截尾，单条 800 字、总量 transcript_char_limit）
+      写入 = 统一写核心 ApplyMutation（source=reflection，reason 必填，敏感拦截同样生效），
+             单次写操作 ≤ max_writes_per_run，tags 含 locked 的条目只读（RespectLocked）
+  → 失败静默重试一次，终态打 react_memory_reflection_total{status=triggered/cooldown_skipped/success/error}
+```
+
+实现取舍（相对设计初稿）：
+- 转录取内存中被压缩的原始消息而非回读 CoveredThrough 区间——压缩时刻原文就在手上，省一次回库且语义精确；
+- 冷却表为进程内 map（懒清理）——重启丢失冷却最坏导致多触发一次，不值得为它加表；
+- reflection run 复用完整 run 生命周期（事件持久化、优雅停机、指标），仅 EventWriter 换成无头实现（丢弃实时事件、error 落日志），回放页照常可用。
+  → 失败静默重试一次，再失败仅记日志，绝不影响主会话
+```
+
+复用要点：reflection run 本身就是普通 run，事件流照常持久化，回放页天然可看（排障友好）；`compactSummaryContent.CoveredThrough`（`service/react/engine.go`）已记录被摘要覆盖的消息区间，reflection 可精确取回"被压缩掉的原文"做审阅，这正是压缩后原文不丢失的第二个用途。
+
+### 7.2 五阶段提示词骨架（取自 Letta reflection 的阶段划分，措辞自行重写）
+
+Investigate（读近期对话与现有记忆）→ Extract（列出候选事实/变化/过期项）→ Update（逐条 create/update/delete，每条给 reason）→ Review（重读修改后记忆，检查矛盾与预算）→ Commit（输出本次整理摘要，作为 run 结束语）。
+
+### 7.3 整理职责边界
+
+- 合并重复事实（同义条目收敛为一条，保留更准确的表述）；
+- 淘汰过期项（时间敏感事实加"截至 YYYY-MM-DD"前缀，过期的 delete）；
+- 分层调整（高频被 memory_read 命中的 detached 条目可提名升 resident；反之降级）；
+- **不做**跨 owner 迁移、不做向量嵌入（后续阶段）、不修改用户显式锁定条目（`tags` 含 `locked` 的条目 reflection 只读）。
+
+## 8. 配置项（conf/mount/custom.yaml）
+
+挂在现有 `llm.react` 段下，风格对齐 `allow_plan`：
+
+```yaml
+llm:
+  react:
+    memory:
+      enabled: true                # 总开关；false 时不注入、不注册工具
+      residentMaxItems: 16         # 常驻层条数上限（单 owner）
+      residentBudgetChars: 2000    # 常驻层字符预算
+      indexMaxItems: 64            # 按需层目录注入条数上限
+      allowUserScope: true         # 是否启用 caller_user 维度（false 则全员共享 caller 级记忆）
+      reflection:
+        enabled: false                 # 默认关，灰度开启
+        cooldown_minutes: 60           # 同一 session 触发冷却（进程内冷却表）
+        max_writes_per_run: 20         # 单次整理写入上限，防失控
+        transcript_char_limit: 16000   # 被压缩原文转录注入上限（取最近部分）
+```
+
+## 9. 管理面与可观测（P2 已实现）
+
+- **HTTP 管理接口**（挂 reactGroup，风格对齐 MCP 连接管理，`memory.enabled=false` 时直接拒绝）：
+  - `POST /react/memory/list`——按 ownerType/ownerKey/layer/tag/keyword 过滤分页，`includeDeleted=true` 审计视图；
+  - `POST /react/memory/create`——管理面播种 caller 级公共记忆（幂等收敛与模型写入一致）；
+  - `POST /react/memory/update`、`/react/memory/delete`——人工修订（source=admin，经统一写核心落修订流水）；
+  - `POST /react/memory/revisions`——条目修订历史（前后快照 + reason + 来源 + 触发人）；
+  - `POST /react/memory/rollback`——按 revisionId 回滚：以 rollback 修订反向提交 before 快照；回滚 delete 修订即复活，create 修订无前置状态、拒绝。
+- **管理页 UI**：本仓库不含管理面板前端（web/ 仅 playground/replay），外部面板按上述接口接入即可。
+- **指标**（`/metrics`，写后重算）：
+  - `react_memory_writes_total{action,source,status}`——写操作计数（含 rollback），失败率与 source 分布由此聚合；
+  - `react_memory_items{owner_type,layer}`——active 条目数水位；
+  - `react_memory_resident_chars{owner_type}`——常驻层字符量水位（预算观测）。
+  - 按 owner 的 TopN 走 SQL（管理面 list 排序），不做 per-owner 标签（基数不可控）；reflection 触发/失败计数随 P3 落地。
+- **回放**：在线写入走工具卡片（现有渲染）；reflection run 是普通 session，`session_type='reflection'` 在历史列表默认折叠，排障时可展开回放。
+
+## 10. 安全与边界
+
+1. **跨用户隔离**：`caller_user` 作用域的记忆在 run 初始化时按 `userName` 解析，工具执行时校验条目 owner ∈ {当前 caller_user, 当前 caller}，杜绝跨用户读取（参照 `display_files.go` 对产物归属的铸造式校验思路）。
+2. **敏感信息**：记忆正文可能含 PII/密钥。提示词纪律（"不记录凭证、证件号、密钥"）+ **写入前正则拦截**（P2 已实现：`service/memory.ScanSensitiveContent`，内置 OpenAI/AWS/GitHub 凭证、JWT、私钥块、身份证号、手机号形态；误伤由调用方改写表述后重试）+ 管理面可删，三层兜底。
+3. **预算防膨胀**：常驻层双重上限（条数+字符）；按需层单 owner 软上限（默认 500 条，超出拒绝 create 并提示先整理）；reflection 有单次写入上限。
+4. **并发**：条目级乐观锁（version），修订流水只插不改天然无并发问题。
+5. **信任模型**：注入块标注"自动维护"，但记忆可能过时甚至被误导写入——`memory_write` 纪律 + reflection 淘汰 + 用户口头纠正（模型应 update 而非新增）三层兜底；管理面保留最终删除权。
+
+## 11. 实施计划
+
+| 阶段 | 内容 | 交付物 | 依赖 |
+| --- | --- | --- | --- |
+| P1 基础闭环 | 建表、模型层、常驻+目录注入、memory_list/read/write 三工具、配置开关、单测 | 记忆自管可用，playground 可验证 | 无 |
+| P2 审计与管理面 ✅ | 统一写核心（service/memory）、/react/memory/* 六接口（含 create 播种与 rollback）、写入敏感词拦截、/metrics 记忆指标 | 运营可治理 | P1 |
+| P3 Reflection ✅ | compact_end 触发链路、五阶段提示词、受限工具集 run、冷却与限额、locked 只读、指标；E2E 实测含重复条目合并 | 自动整理上线（默认关，灰度开） | P1/P2 |
+| P4 检索增强 | keyword → 向量检索（`description` 嵌入），配合 feature/RAG 分支的向量基础设施 | 大规模按需层可用 | P1，RAG 基础设施 |
+
+P1 验收标准：同一 caller+user 的新会话能复现上一会话沉淀的偏好（端到端手测脚本）；关闭开关后行为与现状完全一致（零回归）；记忆为空时 token 消耗与现状一致。
+
+## 12. 与蓝本的取舍说明
+
+| MemFS（Letta）做法 | 本设计取舍 | 理由 |
+| --- | --- | --- |
+| 记忆存本地 git 仓库 | MySQL 条目 + 修订流水表 | 基座状态已在 MySQL，git 目录引入第二存储体系，运维与事务一致性成本高；"每写必 commit"的审计语义用 Revision 表等价实现 |
+| `system/` 目录 + frontmatter description | layer 字段（resident/detached） | 关系模型里目录结构是冗余，两层语义用字段表达更直接 |
+| reflection 子 agent 跑在 OS 级沙箱 | 受限工具集的普通 run | 复用现有运行时与事件流，隔离目标（只能动记忆）用工具白名单达成 |
+| git 远端镜像备份 | 管理面导出（后续可加 JSON 导出/导入） | 备份诉求降级为可运营操作 |
+| 云端 agent 状态（Letta API） | 不引入，全本地 | 集成评估结论：不引运行时/进程/服务，仅取设计 |

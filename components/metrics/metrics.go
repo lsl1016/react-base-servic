@@ -76,4 +76,28 @@ var (
 		Help:    "HTTP request duration in seconds.",
 		Buckets: []float64{0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 	}, []string{"method", "path"})
+
+	// MemoryWritesTotal 长期记忆写操作计数（action: create/update/delete/rollback, source: model/admin/reflection, status: success/error）。
+	MemoryWritesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "react_memory_writes_total",
+		Help: "Total memory mutations by action, source and status.",
+	}, []string{"action", "source", "status"})
+
+	// MemoryItems active 记忆条目数水位（owner_type × layer，写后重算）。
+	MemoryItems = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "react_memory_items",
+		Help: "Active memory items by owner type and layer.",
+	}, []string{"owner_type", "layer"})
+
+	// MemoryResidentChars 常驻层正文字符量水位（owner_type，写后重算；预算水位观测）。
+	MemoryResidentChars = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "react_memory_resident_chars",
+		Help: "Resident-layer memory content chars by owner type.",
+	}, []string{"owner_type"})
+
+	// MemoryReflectionTotal reflection 自动整理计数（status: triggered/cooldown_skipped/success/error）。
+	MemoryReflectionTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "react_memory_reflection_total",
+		Help: "Total memory reflection runs by status.",
+	}, []string{"status"})
 )

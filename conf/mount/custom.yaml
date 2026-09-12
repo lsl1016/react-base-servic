@@ -48,6 +48,21 @@ llm:
       max_read_limit: 32768
     # playground 页面访问白名单；为空时不限制。
     playground_whitelist: []
+    # 长期记忆（跨会话记忆）：开启前需先执行 sql/init.sql 中 tblLlmMemoryItem/tblLlmMemoryRevision 建表；
+    # 未配置默认关闭（不注入、不注册记忆工具，行为与历史版本一致）。
+    memory:
+      enabled: true
+      resident_max_items: 16        # 常驻层条数上限（单记忆空间）
+      resident_budget_chars: 2000   # 常驻层注入字符预算
+      index_max_items: 64           # 按需层目录索引注入条数上限
+      detached_max_items: 500       # 按需层 active 条目软上限（超出拒绝新增）
+      allow_user_scope: true        # false 时记忆收敛到 caller 维度（同 caller 用户共享）
+      # 自动整理（reflection）：compact_end 后异步派生受限子 run 审阅被压缩对话并整理记忆；默认关闭。
+      reflection:
+        enabled: false
+        cooldown_minutes: 60        # 同一 session 两次整理的最小间隔
+        max_writes_per_run: 20      # 单次整理写操作上限（create/update/delete 合计）
+        transcript_char_limit: 16000  # 注入给整理任务的被压缩原文转录字符上限
 
 # MCP 客户端：kind=repo 走 stdio 适配器白名单（可执行文件部署于 bin/，env 注入子进程）；
 # kind=http 走手写 Streamable HTTP；kind=http_sdk 走官方 MCP Go SDK（modelcontextprotocol/go-sdk）实现。

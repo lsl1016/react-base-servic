@@ -61,6 +61,9 @@ type runtimeRequest struct {
 	systemPrompt            string
 	skillsIndexSnapshotJSON string
 	toolsIndexSnapshotJSON  string
+	// memoryContext 是长期记忆注入块（<memory>...</memory>），memory.enabled 时在 prepareRuntimeRequest 装配；
+	// 每次 run 初始化重新解析，保证上一个 run 的写入对后续轮次立即可见。
+	memoryContext           string
 	routeValuesJSON         string
 	historyMessages         []llm.ChatMessage
 	historyMessageRefs      [][]reactMessageRef
@@ -132,11 +135,12 @@ func generateMessageID() string {
 	return "msg_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 }
 
-// normalizeSessionType 将未识别的会话类型收敛为默认 chat，避免外部透传非法类型进入存储层。
+// normalizeSessionType 将会话类型收敛到受支持集合；reflection 为内部整理专用类型，
+// 外部传入时不做特殊拒绝（其执行档案仅放行记忆工具，无滥用面）。
 func normalizeSessionType(t string) string {
 	switch strings.TrimSpace(t) {
-	case model.ReactSessionTypeChat:
-		return model.ReactSessionTypeChat
+	case model.ReactSessionTypeChat, model.ReactSessionTypeReflection:
+		return strings.TrimSpace(t)
 	default:
 		return defaultReactSessionType
 	}
@@ -188,8 +192,8 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 		return nil, err
 	}
 	compactCfg := conf.GetReactRuntimeConfig().ContextCompact
-	initialTools := internalMetaToolDefinitions()
-	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON))
+	initialTools := internalMetaToolDefinitionsForType(req.payload.Type)
+	initialSystemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext)
 	if err := checkEntryInputTokens(initialSystemContent, req.modelUserMessage, initialTools, compactCfg.TokenTrigger); err != nil {
 		return nil, err
 	}
@@ -422,6 +426,16 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 	}
 	toolsIndexSnapshotJSON := buildToolIndexSnapshotJSON(tools)
 
+	// 长期记忆注入块：memory.enabled 时解析 caller(+user) 作用域并渲染常驻层与目录索引；
+	// 记忆为空返回空串（不注入，token 零增量）。
+	var memoryContext string
+	if conf.CustomConf.LLM.React.Memory.MemoryEnabled() {
+		memoryContext, err = buildMemoryContextForRun(ctx, payload.CallerKey, userName)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	payload.RouteValues = routeValues
 	attachments, err := prepareReactAttachments(ctx, payload.Attachments, userName)
 	if err != nil {
@@ -439,6 +453,7 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 		systemPrompt:            systemPrompt,
 		skillsIndexSnapshotJSON: skillsIndexSnapshotJSON,
 		toolsIndexSnapshotJSON:  toolsIndexSnapshotJSON,
+		memoryContext:           memoryContext,
 		routeValuesJSON:         string(routeValuesBytes),
 		modelUserMessage:        modelUserMessage,
 		attachments:             attachments,
@@ -574,7 +589,7 @@ func persistUserInput(ctx *gin.Context, tx *gorm.DB, req *runtimeRequest, runID,
 // buildInitialMessages 组装当前 run 的 system/user 消息；llmContext 绑定到对应 user 消息，Skill 摘要合并到 system 前缀。
 func buildInitialMessages(req *runtimeRequest) []llm.LLMMessage {
 	var messages []llm.LLMMessage
-	if systemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON)); systemContent != "" {
+	if systemContent := buildReactSystemContent(req.systemPrompt, renderToolIndexSummary(req.toolsIndexSnapshotJSON), renderSkillIndexSummary(req.skillsIndexSnapshotJSON), req.memoryContext); systemContent != "" {
 		messages = append(messages, llm.LLMMessage{Role: model.ReactMessageRoleSystem, Content: systemContent})
 	}
 	messages = append(messages, llm.LLMMessage{Role: req.modelUserMessage.Role, Content: req.modelUserMessage.Content})

@@ -408,3 +408,43 @@ CREATE TABLE IF NOT EXISTS `tblLlmChatFileRecord` (
     KEY `idx_owner` (`owner`),
     KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对话附件记录表';
+
+-- ---------------------------------------------------------------------------
+-- 五、长期记忆（跨会话记忆，双层：常驻 resident / 按需 detached）
+-- ---------------------------------------------------------------------------
+
+-- 长期记忆条目表（一条原子事实；逻辑唯一键 owner_type+owner_key+item_key，item_key 为内容语义指纹）
+CREATE TABLE IF NOT EXISTS `tblLlmMemoryItem` (
+    `id`           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `owner_type`   VARCHAR(32)  NOT NULL COMMENT '记忆归属维度: caller/caller_user',
+    `owner_key`    VARCHAR(128) NOT NULL COMMENT '记忆空间键: callerKey 或 callerKey|userName',
+    `layer`        VARCHAR(16)  NOT NULL DEFAULT 'detached' COMMENT '层级: resident=常驻(全文注入)/detached=按需(目录索引)',
+    `title`        VARCHAR(128) NOT NULL DEFAULT '' COMMENT '短标题(目录索引展示,≤32字)',
+    `content`      TEXT         NOT NULL COMMENT '记忆正文(一到三句原子事实,≤500字)',
+    `description`  VARCHAR(512) NOT NULL DEFAULT '' COMMENT '检索描述: 什么场景需要想起这条记忆',
+    `tags`         VARCHAR(512) NOT NULL DEFAULT '' COMMENT '逗号分隔标签(memory_list过滤)',
+    `source`       VARCHAR(32)  NOT NULL DEFAULT 'model' COMMENT '写入来源: model/reflection/admin',
+    `item_key`     VARCHAR(64)  NOT NULL COMMENT '内容语义指纹(规范化SHA-256前16位,幂等去重)',
+    `version`      INT          NOT NULL DEFAULT 1 COMMENT '乐观锁版本号,每次修订+1',
+    `state`        VARCHAR(16)  NOT NULL DEFAULT 'active' COMMENT '状态: active/deleted(软删)',
+    `last_reason`  VARCHAR(512) NOT NULL DEFAULT '' COMMENT '最近一次修订原因(冗余展示)',
+    `created_by`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '触发写入的runID或操作人',
+    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY `uk_owner_item` (`owner_type`, `owner_key`, `item_key`),
+    INDEX `idx_owner_layer_state` (`owner_type`, `owner_key`, `layer`, `state`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='长期记忆条目表';
+
+-- 长期记忆修订流水表（不可变只插不改；回滚=用旧快照反向提交新修订）
+CREATE TABLE IF NOT EXISTS `tblLlmMemoryRevision` (
+    `id`          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `item_id`     BIGINT UNSIGNED NOT NULL COMMENT '记忆条目ID',
+    `action`      VARCHAR(16)  NOT NULL COMMENT '动作: create/update/delete/rollback',
+    `before_json` MEDIUMTEXT   COMMENT '变更前快照(create时为空)',
+    `after_json`  MEDIUMTEXT   COMMENT '变更后快照(delete时为空)',
+    `reason`      VARCHAR(512) NOT NULL COMMENT '修订原因(必填,审计根)',
+    `source`      VARCHAR(32)  NOT NULL COMMENT '来源: model/reflection/admin',
+    `created_by`  VARCHAR(64)  NOT NULL COMMENT 'runID或操作人',
+    `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX `idx_item` (`item_id`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='长期记忆修订流水表';
