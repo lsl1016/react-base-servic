@@ -2,8 +2,6 @@ package react
 
 import (
 	"cmp"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -12,59 +10,22 @@ import (
 	llm "react-base-service/api/llm"
 	"react-base-service/conf"
 	model "react-base-service/models/llm"
+	memoryService "react-base-service/service/memory"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 const (
-	// 常驻层/按需层条目字段长度约束（按 rune 计），与 DDL 注释保持一致。
-	maxMemoryTitleRunes       = 32
-	maxMemoryContentRunes     = 500
-	maxMemoryDescriptionRunes = 512
-	maxMemoryReasonRunes      = 512
-
 	memoryReadMaxItems    = 10
 	memoryListDefaultSize = 20
 	memoryListMaxSize     = 50
 )
 
-// memoryItemKey 计算记忆正文的语义指纹：规范化（去首尾空白、折叠连续空白、ASCII 小写）后取 SHA-256 前 16 位。
-// 同一事实的细微排版差异收敛为同一 itemKey，实现 create 幂等。
-func memoryItemKey(content string) string {
-	normalized := memoryNormalizeContent(content)
-	sum := sha256.Sum256([]byte(normalized))
-	return hex.EncodeToString(sum[:])[:16]
-}
-
-func memoryNormalizeContent(content string) string {
-	return strings.ToLower(strings.Join(strings.Fields(content), " "))
-}
-
-// normalizeMemoryTags 归一化标签串：按逗号切分、去空、去重、保持原顺序。
-func normalizeMemoryTags(tags string) string {
-	parts := strings.Split(tags, ",")
-	seen := make(map[string]struct{}, len(parts))
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if _, ok := seen[part]; ok {
-			continue
-		}
-		seen[part] = struct{}{}
-		result = append(result, part)
-	}
-	return strings.Join(result, ",")
-}
-
 // memoryScopeResolved 描述一次 run 可见的记忆空间与写入目标。
 type memoryScopeResolved struct {
 	owners      []model.MemoryOwner // 可见空间（caller 在前，caller_user 在后）
 	writeOwner  model.MemoryOwner   // memory_write 的落库目标
-	allowedKeys map[string]struct{} // 可见空间集合（owner_type|owner_key），read/list/write 权限校验用
+	allowedKeys map[string]struct{} // 可见空间集合（OwnerScopeKey），read/list/write 权限校验用
 }
 
 // resolveMemoryScope 解析当前 run 的记忆作用域：caller 级做公共底座，user 级（启用时）为写入目标。
@@ -85,7 +46,7 @@ func resolveMemoryScope(callerKey, userName string, allowUserScope bool) memoryS
 }
 
 func memoryOwnerKey(owner model.MemoryOwner) string {
-	return owner.OwnerType + "|" + owner.OwnerKey
+	return memoryService.OwnerScopeKey(owner.OwnerType, owner.OwnerKey)
 }
 
 // mergeMemoryItems 合并多空间条目：同 itemKey 时 caller_user 恒覆盖 caller（按 owner 优先级而非更新时间），
@@ -229,7 +190,7 @@ func memoryToolDefinitions() []llm.ToolDefinition {
 func memoryWriteToolDefinition() llm.ToolDefinition {
 	return llm.ToolDefinition{
 		Name:        metaToolMemoryWrite,
-		Description: "写入/更新/删除长期记忆。只记稳定事实与明确偏好（用户称呼、业务口径、长期约定），不记一次性任务上下文，不记录凭证、证件号、密钥等敏感信息；宁可少写不写错。用户明确要求忘记时执行 delete。每次操作必须给 reason。",
+		Description: "写入/更新/删除长期记忆。只记稳定事实与明确偏好（用户称呼、业务口径、长期约定），不记一次性任务上下文，不记录凭证、证件号、密钥等敏感信息（含敏感形态的内容会被直接拒绝）；宁可少写不写错。用户明确要求忘记时执行 delete。每次操作必须给 reason。",
 		Parameters: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -250,7 +211,7 @@ func memoryWriteToolDefinition() llm.ToolDefinition {
 				"content":       stringSchema("记忆正文，一到三句原子事实（≤500字），create/update 必填。"),
 				"retrievalHint": stringSchema("检索提示：什么场景需要想起这条记忆（≤512字），create/update 必填。"),
 				"tags":          stringSchema("逗号分隔标签，可选。"),
-				"reason":        stringSchema("必填：为什么写入/修改/删除这条记忆。"),
+				"reason":        stringSchema("必填：为什么写入/修改/删除。"),
 			},
 			"required":             []string{"description", "action", "reason"},
 			"additionalProperties": false,
@@ -269,7 +230,7 @@ type memoryListItemView struct {
 	ItemID      uint   `json:"itemId"`
 	Layer       string `json:"layer"`
 	Title       string `json:"title"`
-	Description string `json:"retrievalHint"`
+	Description string `json:"description"`
 	Tags        string `json:"tags"`
 	Source      string `json:"source"`
 	Version     int    `json:"version"`
@@ -420,328 +381,34 @@ type memoryWriteInput struct {
 	Reason      string `json:"reason"`
 }
 
-// executeMemoryWrite 是记忆唯一写入口（模型侧）：create 幂等收敛、update 乐观锁、delete 软删，
-// 每次成功操作在事务内同步落一条不可变修订流水。
+// executeMemoryWrite 是引擎侧记忆写入口：解析入参、解析作用域后交给统一写核心
+// （service/memory.ApplyMutation，与管理面共用校验/幂等/修订流水/敏感拦截/指标）。
 func (s *reactEngineState) executeMemoryWrite(input json.RawMessage) (string, bool, error) {
 	var req memoryWriteInput
 	if err := json.Unmarshal(input, &req); err != nil {
 		return "", true, fmt.Errorf("memory_write input must be a valid JSON object")
 	}
-	req.Action = strings.TrimSpace(req.Action)
-	req.Reason = strings.TrimSpace(req.Reason)
-	req.Title = strings.TrimSpace(req.Title)
-	req.Content = strings.TrimSpace(req.Content)
-	req.Description = strings.TrimSpace(req.Description)
-	req.Tags = normalizeMemoryTags(req.Tags)
-	req.Layer = strings.TrimSpace(req.Layer)
-
-	if req.Reason == "" {
-		return "", true, fmt.Errorf("reason 必填：说明为什么本次写入/修改/删除")
-	}
-	if len([]rune(req.Reason)) > maxMemoryReasonRunes {
-		return "", true, fmt.Errorf("reason 超长（≤%d字）", maxMemoryReasonRunes)
-	}
-	if req.Layer != "" && req.Layer != model.MemoryLayerResident && req.Layer != model.MemoryLayerDetached {
-		return "", true, fmt.Errorf("layer 仅支持 resident/detached")
-	}
 
 	cfg := conf.GetReactRuntimeConfig().Memory
 	scope := resolveMemoryScope(s.req.payload.CallerKey, s.req.userName, cfg.MemoryAllowUserScope())
-
-	var result map[string]interface{}
-	err := model.GetLLMDB().WithContext(s.ctx).Transaction(func(tx *gorm.DB) error {
-		var txErr error
-		switch req.Action {
-		case "create":
-			result, txErr = s.memoryWriteCreate(tx, &req, scope, cfg)
-		case "update":
-			result, txErr = s.memoryWriteUpdate(tx, &req, scope, cfg)
-		case "delete":
-			result, txErr = s.memoryWriteDelete(tx, &req, scope)
-		default:
-			txErr = fmt.Errorf("action 仅支持 create/update/delete")
-		}
-		return txErr
+	result, err := memoryService.ApplyMutation(s.ctx, memoryService.MutationInput{
+		Action:           req.Action,
+		ItemID:           uint(req.ItemID),
+		Version:          req.Version,
+		Layer:            req.Layer,
+		Title:            req.Title,
+		Content:          req.Content,
+		Description:      req.Description,
+		Tags:             req.Tags,
+		Reason:           req.Reason,
+		Owner:            scope.writeOwner,
+		Source:           model.MemorySourceModel,
+		CreatedBy:        s.runID,
+		AllowedOwnerKeys: scope.allowedKeys,
 	})
 	if err != nil {
 		return "", true, err
 	}
 	data, _ := json.Marshal(result)
 	return string(data), false, nil
-}
-
-// memoryWriteCreate 新增记忆；同 itemKey 的存量条目（含软删）自动收敛为更新/复活，保证幂等。
-func (s *reactEngineState) memoryWriteCreate(tx *gorm.DB, req *memoryWriteInput, scope memoryScopeResolved, cfg conf.ReactMemoryConfig) (map[string]interface{}, error) {
-	if err := validateMemoryPayload(req.Title, req.Content, req.Description); err != nil {
-		return nil, err
-	}
-	layer := req.Layer
-	if layer == "" {
-		layer = model.MemoryLayerDetached
-	}
-
-	itemKey := memoryItemKey(req.Content)
-	existing, err := model.FindMemoryItemByOwnerAndKeyWithDB(s.ctx, tx, scope.writeOwner, itemKey)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		// 幂等收敛：同一事实重复写入转为更新（软删条目同时复活），reason 标注收敛语义。
-		convReq := &memoryWriteInput{
-			ItemID:      uint64(existing.ID),
-			Layer:       firstNonEmpty(req.Layer, existing.Layer),
-			Title:       req.Title,
-			Content:     req.Content,
-			Description: req.Description,
-			Tags:        req.Tags,
-			Reason:      "create 命中同指纹条目，收敛为更新；" + req.Reason,
-		}
-		result, updateErr := s.memoryApplyUpdate(tx, existing, convReq, scope, cfg, true)
-		if updateErr != nil {
-			return nil, updateErr
-		}
-		result["converged"] = true
-		return result, nil
-	}
-
-	if err := checkMemoryLayerCap(s.ctx, tx, scope.writeOwner, layer, cfg, 1); err != nil {
-		return nil, err
-	}
-
-	item := &model.MemoryItem{
-		OwnerType:   scope.writeOwner.OwnerType,
-		OwnerKey:    scope.writeOwner.OwnerKey,
-		Layer:       layer,
-		Title:       req.Title,
-		Content:     req.Content,
-		Description: req.Description,
-		Tags:        req.Tags,
-		Source:      model.MemorySourceModel,
-		ItemKey:     itemKey,
-		Version:     1,
-		State:       model.MemoryStateActive,
-		LastReason:  req.Reason,
-		CreatedBy:   s.runID,
-	}
-	if err := model.CreateMemoryItemWithDB(s.ctx, tx, item); err != nil {
-		return nil, err
-	}
-	if err := createMemoryRevisionFromItem(s.ctx, tx, item.ID, "create", nil, item, req.Reason, s.runID); err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{
-		"action":  "create",
-		"itemId":  item.ID,
-		"layer":   item.Layer,
-		"version": item.Version,
-		"reason":  req.Reason,
-	}, nil
-}
-
-// memoryWriteUpdate 按 itemId 更新记忆。
-func (s *reactEngineState) memoryWriteUpdate(tx *gorm.DB, req *memoryWriteInput, scope memoryScopeResolved, cfg conf.ReactMemoryConfig) (map[string]interface{}, error) {
-	if req.ItemID == 0 {
-		return nil, fmt.Errorf("update 需要 itemId")
-	}
-	item, err := model.GetActiveMemoryItemByID(s.ctx, uint(req.ItemID))
-	if err != nil {
-		return nil, err
-	}
-	if item == nil {
-		return nil, fmt.Errorf("记忆 #%d 不存在或已删除", req.ItemID)
-	}
-	if err := validateMemoryScopeForItem(scope, item, uint(req.ItemID)); err != nil {
-		return nil, err
-	}
-	if err := validateMemoryPayload(req.Title, req.Content, req.Description); err != nil {
-		return nil, err
-	}
-	return s.memoryApplyUpdate(tx, item, req, scope, cfg, false)
-}
-
-// memoryApplyUpdate 执行条目更新（含 create 收敛复用）：乐观锁 + 层级守门 + 修订流水。
-func (s *reactEngineState) memoryApplyUpdate(tx *gorm.DB, item *model.MemoryItem, req *memoryWriteInput, scope memoryScopeResolved, cfg conf.ReactMemoryConfig, ignoreVersion bool) (map[string]interface{}, error) {
-	targetLayer := item.Layer
-	if req.Layer != "" {
-		targetLayer = req.Layer
-	}
-	tags := item.Tags
-	if req.Tags != "" {
-		tags = req.Tags
-	}
-	if targetLayer == model.MemoryLayerResident && item.Layer != model.MemoryLayerResident {
-		// detached → resident 需要为常驻层腾出容量（本条不计入存量）。
-		if err := checkMemoryLayerCap(s.ctx, tx, scope.writeOwner, targetLayer, cfg, 1); err != nil {
-			return nil, err
-		}
-	}
-	before := *item
-	updates := map[string]interface{}{
-		"layer":       targetLayer,
-		"title":       req.Title,
-		"content":     req.Content,
-		"description": req.Description,
-		"tags":        tags,
-		"state":       model.MemoryStateActive,
-		"last_reason": req.Reason,
-		"version":     item.Version + 1,
-	}
-	expectedVersion := 0
-	if !ignoreVersion {
-		expectedVersion = req.Version
-	}
-	updated, err := model.UpdateMemoryItemWithVersionWithDB(s.ctx, tx, item.ID, expectedVersion, updates)
-	if err != nil {
-		return nil, err
-	}
-	if !updated {
-		if req.Version > 0 {
-			return nil, fmt.Errorf("记忆 #%d 版本冲突（当前版本已变化），请用 memory_read 重读后重试", item.ID)
-		}
-		return nil, fmt.Errorf("记忆 #%d 更新失败：条目不存在或状态异常", item.ID)
-	}
-	after := before
-	after.Layer = targetLayer
-	after.Title = req.Title
-	after.Content = req.Content
-	after.Description = req.Description
-	after.Tags = tags
-	after.State = model.MemoryStateActive
-	after.LastReason = req.Reason
-	after.Version = before.Version + 1
-	if err := createMemoryRevisionFromItem(s.ctx, tx, item.ID, "update", &before, &after, req.Reason, s.runID); err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{
-		"action":  "update",
-		"itemId":  item.ID,
-		"layer":   targetLayer,
-		"version": after.Version,
-		"reason":  req.Reason,
-	}, nil
-}
-
-// memoryWriteDelete 软删记忆。
-func (s *reactEngineState) memoryWriteDelete(tx *gorm.DB, req *memoryWriteInput, scope memoryScopeResolved) (map[string]interface{}, error) {
-	if req.ItemID == 0 {
-		return nil, fmt.Errorf("delete 需要 itemId")
-	}
-	item, err := model.GetActiveMemoryItemByID(s.ctx, uint(req.ItemID))
-	if err != nil {
-		return nil, err
-	}
-	if item == nil {
-		return nil, fmt.Errorf("记忆 #%d 不存在或已删除", req.ItemID)
-	}
-	if err := validateMemoryScopeForItem(scope, item, uint(req.ItemID)); err != nil {
-		return nil, err
-	}
-
-	before := *item
-	updated, err := model.UpdateMemoryItemWithVersionWithDB(s.ctx, tx, item.ID, req.Version, map[string]interface{}{
-		"state":       model.MemoryStateDeleted,
-		"last_reason": req.Reason,
-		"version":     item.Version + 1,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !updated {
-		if req.Version > 0 {
-			return nil, fmt.Errorf("记忆 #%d 版本冲突（当前版本已变化），请用 memory_read 重读后重试", item.ID)
-		}
-		return nil, fmt.Errorf("记忆 #%d 删除失败：条目不存在或状态异常", item.ID)
-	}
-	if err := createMemoryRevisionFromItem(s.ctx, tx, item.ID, "delete", &before, nil, req.Reason, s.runID); err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{
-		"action":  "delete",
-		"itemId":  item.ID,
-		"version": before.Version + 1,
-		"reason":  req.Reason,
-	}, nil
-}
-
-// checkMemoryLayerCap 常驻/按需层上限守门：extra 是本次操作将要新增的条目数（纯新增传 1），
-// 结果总数超过上限才拒绝（上限值本身可达成）。
-func checkMemoryLayerCap(ctx *gin.Context, tx *gorm.DB, owner model.MemoryOwner, layer string, cfg conf.ReactMemoryConfig, extra int64) error {
-	if layer == model.MemoryLayerResident {
-		count, err := model.CountActiveMemoryItemsWithDB(ctx, tx, owner, model.MemoryLayerResident)
-		if err != nil {
-			return err
-		}
-		if count+extra > int64(cfg.ResidentMaxItems) {
-			return fmt.Errorf("常驻层已满（上限 %d 条）：请先将一条常驻记忆改为 detached（update layer=detached）再写入", cfg.ResidentMaxItems)
-		}
-		return nil
-	}
-	count, err := model.CountActiveMemoryItemsWithDB(ctx, tx, owner, "")
-	if err != nil {
-		return err
-	}
-	if count+extra > int64(cfg.DetachedMaxItems) {
-		return fmt.Errorf("该记忆空间条目数已达软上限（%d 条）：请先整理，删除或合并过时记忆后再写入", cfg.DetachedMaxItems)
-	}
-	return nil
-}
-
-func validateMemoryScopeForItem(scope memoryScopeResolved, item *model.MemoryItem, itemID uint) error {
-	if _, ok := scope.allowedKeys[memoryOwnerKey(model.MemoryOwner{OwnerType: item.OwnerType, OwnerKey: item.OwnerKey})]; !ok {
-		return fmt.Errorf("记忆 #%d 不在当前作用域内，无权操作", itemID)
-	}
-	return nil
-}
-
-func validateMemoryPayload(title, content, description string) error {
-	if title == "" {
-		return fmt.Errorf("title 必填")
-	}
-	if len([]rune(title)) > maxMemoryTitleRunes {
-		return fmt.Errorf("title 超长（≤%d字）", maxMemoryTitleRunes)
-	}
-	if content == "" {
-		return fmt.Errorf("content 必填")
-	}
-	if len([]rune(content)) > maxMemoryContentRunes {
-		return fmt.Errorf("content 超长（≤%d字）", maxMemoryContentRunes)
-	}
-	if description == "" {
-		return fmt.Errorf("description 必填")
-	}
-	if len([]rune(description)) > maxMemoryDescriptionRunes {
-		return fmt.Errorf("description 超长（≤%d字）", maxMemoryDescriptionRunes)
-	}
-	return nil
-}
-
-// createMemoryRevisionFromItem 落一条不可变修订流水。
-func createMemoryRevisionFromItem(ctx *gin.Context, tx *gorm.DB, itemID uint, action string, before, after *model.MemoryItem, reason, createdBy string) error {
-	revision := &model.MemoryRevision{
-		ItemID:    itemID,
-		Action:    action,
-		Reason:    reason,
-		Source:    model.MemorySourceModel,
-		CreatedBy: createdBy,
-	}
-	var err error
-	if before != nil {
-		if revision.BeforeJSON, err = memoryItemSnapshotJSON(before); err != nil {
-			return err
-		}
-	}
-	if after != nil {
-		if revision.AfterJSON, err = memoryItemSnapshotJSON(after); err != nil {
-			return err
-		}
-	}
-	return model.CreateMemoryRevisionWithDB(ctx, tx, revision)
-}
-
-func memoryItemSnapshotJSON(item *model.MemoryItem) (string, error) {
-	data, err := json.Marshal(item)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }

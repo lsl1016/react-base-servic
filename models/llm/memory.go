@@ -191,3 +191,127 @@ func FindMemoryRevisionsByItemID(ctx *gin.Context, itemID uint) ([]MemoryRevisio
 	}
 	return revisions, nil
 }
+
+// GetMemoryRevisionByID 按主键查修订；不存在返回 nil。
+func GetMemoryRevisionByID(ctx *gin.Context, id uint) (*MemoryRevision, error) {
+	var revision MemoryRevision
+	err := helpers.MysqlClientLLM.Model(&MemoryRevision{}).WithContext(ctx).
+		Where("id = ?", id).First(&revision).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return &revision, nil
+}
+
+// GetMemoryItemByIDAnyState 按 ID 查条目（含软删），供回滚等管理操作使用；不存在返回 nil。
+func GetMemoryItemByIDAnyState(ctx *gin.Context, id uint) (*MemoryItem, error) {
+	var item MemoryItem
+	err := helpers.MysqlClientLLM.Model(&MemoryItem{}).WithContext(ctx).
+		Where("id = ?", id).First(&item).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return &item, nil
+}
+
+// MemoryItemFilter 是管理面列表查询条件；零值字段不参与过滤。
+type MemoryItemFilter struct {
+	OwnerType string
+	OwnerKey  string
+	Layer     string
+	Tag       string
+	Keyword   string
+	// IncludeDeleted 为 true 时包含软删条目（管理面审计视图）。
+	IncludeDeleted bool
+	Limit         int
+	Offset        int
+}
+
+// FindMemoryItemsByFilter 按条件分页查询记忆条目，返回明细与总数（不含分页）。
+func FindMemoryItemsByFilter(ctx *gin.Context, filter MemoryItemFilter) ([]MemoryItem, int64, error) {
+	query := helpers.MysqlClientLLM.Model(&MemoryItem{}).WithContext(ctx)
+	if filter.OwnerType != "" {
+		query = query.Where("owner_type = ?", filter.OwnerType)
+	}
+	if filter.OwnerKey != "" {
+		query = query.Where("owner_key = ?", filter.OwnerKey)
+	}
+	if filter.Layer != "" {
+		query = query.Where("layer = ?", filter.Layer)
+	}
+	if filter.Tag != "" {
+		query = query.Where("FIND_IN_SET(?, tags)", filter.Tag)
+	}
+	if filter.Keyword != "" {
+		like := "%" + filter.Keyword + "%"
+		query = query.Where("title LIKE ? OR description LIKE ? OR tags LIKE ? OR content LIKE ?", like, like, like, like)
+	}
+	if !filter.IncludeDeleted {
+		query = query.Where("state = ?", MemoryStateActive)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, components.ErrorDbSelect.Wrap(err)
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var items []MemoryItem
+	err := query.Order("updated_at DESC").Limit(limit).Offset(filter.Offset).Find(&items).Error
+	if err != nil {
+		return nil, 0, components.ErrorDbSelect.Wrap(err)
+	}
+	return items, total, nil
+}
+
+// MemoryOwnerLayerCount 是指标聚合行：active 条目数按 owner_type × layer。
+type MemoryOwnerLayerCount struct {
+	OwnerType string
+	Layer     string
+	Count     int64
+}
+
+// CountActiveMemoryItemsGrouped 按 owner_type × layer 聚合 active 条目数（指标观测）。
+func CountActiveMemoryItemsGrouped(ctx *gin.Context) ([]MemoryOwnerLayerCount, error) {
+	var rows []MemoryOwnerLayerCount
+	err := helpers.MysqlClientLLM.Model(&MemoryItem{}).WithContext(ctx).
+		Select("owner_type, layer, COUNT(*) AS count").
+		Where("state = ?", MemoryStateActive).
+		Group("owner_type, layer").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return rows, nil
+}
+
+// MemoryResidentChars 是指标聚合行：常驻层字符量按 owner_type。
+type MemoryResidentChars struct {
+	OwnerType string
+	Chars     int64
+}
+
+// SumResidentCharsGroupedByOwnerType 聚合常驻层正文字符量（CHAR_LENGTH 按 rune 计，指标观测）。
+func SumResidentCharsGroupedByOwnerType(ctx *gin.Context) ([]MemoryResidentChars, error) {
+	var rows []MemoryResidentChars
+	err := helpers.MysqlClientLLM.Model(&MemoryItem{}).WithContext(ctx).
+		Select("owner_type, COALESCE(SUM(CHAR_LENGTH(content)), 0) AS chars").
+		Where("state = ? AND layer = ?", MemoryStateActive, MemoryLayerResident).
+		Group("owner_type").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return rows, nil
+}

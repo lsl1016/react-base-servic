@@ -77,6 +77,13 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		reactGroup.POST("/mcp/update", react.UpdateMcpServer)
 		reactGroup.POST("/mcp/delete", react.DeleteMcpServer)
 		reactGroup.POST("/mcp/connect", react.ConnectMcpServer)
+		// 长期记忆管理面（P2：审计与管理面，见 controllers/http/react/memory.go；写路径与引擎 memory_write 工具共用写核心）
+		reactGroup.POST("/memory/list", react.ListMemories)
+		reactGroup.POST("/memory/create", react.CreateMemory)
+		reactGroup.POST("/memory/update", react.UpdateMemory)
+		reactGroup.POST("/memory/delete", react.DeleteMemory)
+		reactGroup.POST("/memory/revisions", react.ListMemoryRevisions)
+		reactGroup.POST("/memory/rollback", react.RollbackMemory)
 		// python_exec 产物下载：走 IPS 登录态，图片/文件均需鉴权后经本接口读取（COS 私有桶不外暴露）。
 		reactGroup.GET("/artifact/:artifactId", react.GetArtifact)
 	}

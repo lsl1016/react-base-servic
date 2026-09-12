@@ -1,8 +1,9 @@
 # 长期记忆模块设计（Long-Term Memory）
 
-> 状态：P1 基础闭环已实现（feature/memory 分支）——建表 DDL、模型层、常驻+目录注入、
-> memory_list/memory_read/memory_write 三工具、`llm.react.memory` 配置开关与单元测试；
-> P2（管理面/审计接口）、P3（reflection）、P4（向量检索）待实施。
+> 状态：P1 基础闭环、P2 审计与管理面已实现（feature/memory 分支）。
+> P1：建表 DDL、模型层、常驻+目录注入、memory_list/memory_read/memory_write 三工具、`llm.react.memory` 配置开关与单元测试。
+> P2：统一写核心（service/memory，引擎与管理面共用）、/react/memory/* 管理接口（含回滚）、写入敏感信息正则拦截、/metrics 记忆指标。
+> P3（reflection）、P4（向量检索）待实施。
 > 目标：为 ReAct 基座补上**跨会话长期记忆**能力——会话结束时沉淀事实与偏好，新会话开始时按需注入，并由后台整理任务持续维护。
 >
 > 设计蓝本：Letta Code 的 MemFS 记忆系统（`C:\Users\keke\Desktop\xm\letta-code\docs\memory-system-design.md`，
@@ -205,7 +206,14 @@ run 初始化时按 **caller_user → caller** 两级合并解析（caller 级�
 - **乐观锁**：update 携带读取时的 version，冲突则失败并提示重读（模型重试即可）；
 - **reason 必填**：空则直接校验失败，这是审计链的根；
 - **写入即修订**：每次成功操作插入一条 `tblLlmMemoryRevision`；
-- **常驻层守门**：单 owner 常驻层超上限时写入失败并提示"需先降级一条常驻记忆"（不自动挤占，逼模型显式决策）。
+- **常驻层守门**：单 owner 常驻层超上限时写入失败并提示"需先降级一条常驻记忆"（不自动挤占，逼模型显式决策）；
+- **敏感信息拦截**（P2）：title/content/description/reason 命中内置敏感形态（OpenAI/AWS/GitHub 凭证、JWT、私钥块、身份证号、手机号）直接拒绝入库，引擎与管理面同一套拦截（`service/memory.ScanSensitiveContent`）。
+
+### 统一写核心（P2）
+
+引擎工具与管理面接口没有各自的写路径：两者都调 `service/memory.ApplyMutation`（唯一写入口），
+校验、幂等收敛、乐观锁、容量守门、敏感拦截、修订流水与指标打点在此单点维护；
+区别只在 `source`（model/admin）与 `createdBy`（runID/操作人），审计链无旁门。
 
 ### 工具说明文案中的写入纪律（system 提示词约束）
 
@@ -262,20 +270,26 @@ llm:
         maxWritesPerRun: 20        # 单次整理写入上限，防失控
 ```
 
-## 9. 管理面与可观测
+## 9. 管理面与可观测（P2 已实现）
 
-- **HTTP 管理接口**（挂管理路由组，风格对齐 MCP 连接管理）：
-  - `POST /react/memory/list`——按 owner/layer/tag/keyword 查询；
-  - `POST /react/memory/update`、`/react/memory/delete`——人工修订（source=admin，同样落修订流水）；
-  - `POST /react/memory/revisions`——条目修订历史（回滚取 before_json 反向提交）；
-  - `POST /react/memory/rollback`——指定 revision 回滚。
+- **HTTP 管理接口**（挂 reactGroup，风格对齐 MCP 连接管理，`memory.enabled=false` 时直接拒绝）：
+  - `POST /react/memory/list`——按 ownerType/ownerKey/layer/tag/keyword 过滤分页，`includeDeleted=true` 审计视图；
+  - `POST /react/memory/create`——管理面播种 caller 级公共记忆（幂等收敛与模型写入一致）；
+  - `POST /react/memory/update`、`/react/memory/delete`——人工修订（source=admin，经统一写核心落修订流水）；
+  - `POST /react/memory/revisions`——条目修订历史（前后快照 + reason + 来源 + 触发人）；
+  - `POST /react/memory/rollback`——按 revisionId 回滚：以 rollback 修订反向提交 before 快照；回滚 delete 修订即复活，create 修订无前置状态、拒绝。
+- **管理页 UI**：本仓库不含管理面板前端（web/ 仅 playground/replay），外部面板按上述接口接入即可。
+- **指标**（`/metrics`，写后重算）：
+  - `react_memory_writes_total{action,source,status}`——写操作计数（含 rollback），失败率与 source 分布由此聚合；
+  - `react_memory_items{owner_type,layer}`——active 条目数水位；
+  - `react_memory_resident_chars{owner_type}`——常驻层字符量水位（预算观测）。
+  - 按 owner 的 TopN 走 SQL（管理面 list 排序），不做 per-owner 标签（基数不可控）；reflection 触发/失败计数随 P3 落地。
 - **回放**：在线写入走工具卡片（现有渲染）；reflection run 是普通 session，`session_type='reflection'` 在历史列表默认折叠，排障时可展开回放。
-- **指标**（`/metrics` 增补）：memory_write 调用量与失败率、按 source 分布、常驻层字符占用水位、reflection 触发/失败次数、记忆条目数按 owner TopN。
 
 ## 10. 安全与边界
 
 1. **跨用户隔离**：`caller_user` 作用域的记忆在 run 初始化时按 `userName` 解析，工具执行时校验条目 owner ∈ {当前 caller_user, 当前 caller}，杜绝跨用户读取（参照 `display_files.go` 对产物归属的铸造式校验思路）。
-2. **敏感信息**：记忆正文可能含 PII/密钥。第一阶段的纪律靠提示词（"不记录凭证、证件号、密钥"）+ 管理面可删；第二阶段加写入前正则拦截（复用现有敏感词/凭证 pattern）。
+2. **敏感信息**：记忆正文可能含 PII/密钥。提示词纪律（"不记录凭证、证件号、密钥"）+ **写入前正则拦截**（P2 已实现：`service/memory.ScanSensitiveContent`，内置 OpenAI/AWS/GitHub 凭证、JWT、私钥块、身份证号、手机号形态；误伤由调用方改写表述后重试）+ 管理面可删，三层兜底。
 3. **预算防膨胀**：常驻层双重上限（条数+字符）；按需层单 owner 软上限（默认 500 条，超出拒绝 create 并提示先整理）；reflection 有单次写入上限。
 4. **并发**：条目级乐观锁（version），修订流水只插不改天然无并发问题。
 5. **信任模型**：注入块标注"自动维护"，但记忆可能过时甚至被误导写入——`memory_write` 纪律 + reflection 淘汰 + 用户口头纠正（模型应 update 而非新增）三层兜底；管理面保留最终删除权。
@@ -285,7 +299,7 @@ llm:
 | 阶段 | 内容 | 交付物 | 依赖 |
 | --- | --- | --- | --- |
 | P1 基础闭环 | 建表、模型层、常驻+目录注入、memory_list/read/write 三工具、配置开关、单测 | 记忆自管可用，playground 可验证 | 无 |
-| P2 审计与管理面 | 修订流水查询/回滚接口、管理页（可先并入现有管理面板）、写入敏感词拦截、指标 | 运营可治理 | P1 |
+| P2 审计与管理面 ✅ | 统一写核心（service/memory）、/react/memory/* 六接口（含 create 播种与 rollback）、写入敏感词拦截、/metrics 记忆指标 | 运营可治理 | P1 |
 | P3 Reflection | compact_end 触发链路、五阶段提示词、受限工具集 run、冷却与限额 | 自动整理上线（默认关，灰度开） | P1/P2 |
 | P4 检索增强 | keyword → 向量检索（`description` 嵌入），配合 feature/RAG 分支的向量基础设施 | 大规模按需层可用 | P1，RAG 基础设施 |
 

@@ -7,35 +7,8 @@ import (
 
 	"react-base-service/conf"
 	model "react-base-service/models/llm"
+	memoryService "react-base-service/service/memory"
 )
-
-func TestMemoryItemKeyNormalizesWhitespaceAndCase(t *testing.T) {
-	a := memoryItemKey("用户希望被称为  陈总")
-	b := memoryItemKey("  用户希望被称为 陈总 ")
-	c := memoryItemKey("User Prefers HKD")
-	if a != b {
-		t.Fatalf("whitespace variants should converge: %s vs %s", a, b)
-	}
-	if c != memoryItemKey("user prefers hkd") {
-		t.Fatalf("ascii case should converge")
-	}
-	if a == c {
-		t.Fatalf("different content should produce different keys")
-	}
-	if len(a) != 16 {
-		t.Fatalf("itemKey should be 16 hex chars, got %d", len(a))
-	}
-}
-
-func TestNormalizeMemoryTagsTrimsAndDedupes(t *testing.T) {
-	got := normalizeMemoryTags(" 偏好 ,报表, 报表 ,, ")
-	if got != "偏好,报表" {
-		t.Fatalf("unexpected tags: %q", got)
-	}
-	if normalizeMemoryTags("") != "" {
-		t.Fatalf("empty tags should stay empty")
-	}
-}
 
 func TestResolveMemoryScopeWriteOwnerAndVisibility(t *testing.T) {
 	withUser := resolveMemoryScope("demo-app", "zhangsan", true)
@@ -124,22 +97,22 @@ func TestRenderMemoryContextBudgetAndIndexTruncation(t *testing.T) {
 }
 
 func TestValidateMemoryPayloadRules(t *testing.T) {
-	if err := validateMemoryPayload("", "内容", "提示"); err == nil || !strings.Contains(err.Error(), "title") {
+	if err := memoryService.ValidatePayload("", "内容", "提示"); err == nil || !strings.Contains(err.Error(), "title") {
 		t.Fatalf("empty title should fail, got %v", err)
 	}
-	if err := validateMemoryPayload(strings.Repeat("标", 33), "内容", "提示"); err == nil || !strings.Contains(err.Error(), "title 超长") {
+	if err := memoryService.ValidatePayload(strings.Repeat("标", 33), "内容", "提示"); err == nil || !strings.Contains(err.Error(), "title 超长") {
 		t.Fatalf("long title should fail, got %v", err)
 	}
-	if err := validateMemoryPayload("标题", "", "提示"); err == nil || !strings.Contains(err.Error(), "content") {
+	if err := memoryService.ValidatePayload("标题", "", "提示"); err == nil || !strings.Contains(err.Error(), "content") {
 		t.Fatalf("empty content should fail, got %v", err)
 	}
-	if err := validateMemoryPayload("标题", strings.Repeat("文", 501), "提示"); err == nil || !strings.Contains(err.Error(), "content 超长") {
+	if err := memoryService.ValidatePayload("标题", strings.Repeat("文", 501), "提示"); err == nil || !strings.Contains(err.Error(), "content 超长") {
 		t.Fatalf("long content should fail, got %v", err)
 	}
-	if err := validateMemoryPayload("标题", "内容", ""); err == nil || !strings.Contains(err.Error(), "description") {
+	if err := memoryService.ValidatePayload("标题", "内容", ""); err == nil || !strings.Contains(err.Error(), "description") {
 		t.Fatalf("empty description should fail, got %v", err)
 	}
-	if err := validateMemoryPayload("标题", "内容", "提示"); err != nil {
+	if err := memoryService.ValidatePayload("标题", "内容", "提示"); err != nil {
 		t.Fatalf("valid payload should pass, got %v", err)
 	}
 }
