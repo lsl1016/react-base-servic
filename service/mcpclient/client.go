@@ -29,6 +29,10 @@ type ServerConfig struct {
 	Env       map[string]string `yaml:"env"`
 	Endpoint  string            `yaml:"endpoint"`
 	TimeoutMs int               `yaml:"timeout_ms"`
+	// Headers 附加到每个 HTTP 请求（如 Authorization），仅 kind=http 支持。
+	Headers map[string]string `yaml:"headers"`
+	// AllowPrivate 允许环回/私网端点（本机开发环境经 mcp.allow_private_endpoint 开启）。
+	AllowPrivate bool `yaml:"-"`
 }
 
 // adapter 是白名单中一个可拉起的 MCP 适配器；command 为固定字面量路径。

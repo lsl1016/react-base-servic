@@ -51,3 +51,6 @@ llm:
 async_task:
   # 异步任务状态同步框架总开关；无内置 Provider 时开启后也为空转
   enabled: false
+
+mcp:
+  allow_private_endpoint: true

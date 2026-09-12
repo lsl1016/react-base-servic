@@ -145,6 +145,9 @@ type MCPConfig struct {
 	// CallerKey 是 MCP 工具同步进注册表时挂载的调用方；为空则不启用 MCP。
 	CallerKey string         `yaml:"caller_key"`
 	Servers   []MCPServerConf `yaml:"servers"`
+	// AllowPrivateEndpoint 允许连接环回/私网 MCP 端点（默认拒绝，SSRF 防护）。
+	// 仅本机开发/演示环境开启；生产环境必须保持 false。
+	AllowPrivateEndpoint bool `yaml:"allow_private_endpoint"`
 }
 
 // MCPServerConf 描述一个 MCP 服务器：kind=repo 选自 stdio 适配器白名单（env 注入子进程）；
@@ -155,6 +158,7 @@ type MCPServerConf struct {
 	Env       map[string]string `yaml:"env"`
 	Endpoint  string            `yaml:"endpoint"`
 	TimeoutMs int               `yaml:"timeout_ms"`
+	Headers   map[string]string `yaml:"headers"`
 }
 
 // AsyncTaskConfig 控制异步任务状态同步框架。

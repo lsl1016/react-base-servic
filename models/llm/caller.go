@@ -29,6 +29,20 @@ func (c *Caller) TableName() string {
 	return "tblLlmCaller"
 }
 
+// DefaultCallerKey 是「默认作用域」伪 caller：工具/系统提示词/skill 挂在该 caller 下时，
+// 对全部 caller 生效（解析时与具体 caller 合并查询）。该 callerKey 为保留字，不允许注册为真实 caller。
+const DefaultCallerKey = "default"
+
+// CallerScopeKeys 返回资源解析用的 caller 范围：具体 caller + 默认作用域。
+func CallerScopeKeys(callerKey string) []string {
+	return []string{callerKey, DefaultCallerKey}
+}
+
+// IsReservedCallerKey 判断 callerKey 是否为保留字（默认作用域伪 caller）。
+func IsReservedCallerKey(callerKey string) bool {
+	return callerKey == DefaultCallerKey
+}
+
 func CreateCaller(ctx *gin.Context, caller *Caller) error {
 	err := helpers.MysqlClientLLM.Model(&Caller{}).WithContext(ctx).Create(caller).Error
 	if err != nil {

@@ -18,12 +18,15 @@ import (
 )
 
 func RegisterSystemPrompt(ctx *gin.Context, req *params.RegisterSystemPromptReq, createdBy string) (*model.SystemPrompt, error) {
-	caller, err := model.GetActiveCallerByKey(ctx, req.CallerKey)
-	if err != nil {
-		return nil, err
-	}
-	if caller == nil {
-		return nil, components.ErrorCallerNotFound.Sprintf(req.CallerKey)
+	// caller_key=default 是默认作用域伪 caller（全 caller 可用），不要求真实 caller 存在。
+	if !model.IsReservedCallerKey(req.CallerKey) {
+		caller, err := model.GetActiveCallerByKey(ctx, req.CallerKey)
+		if err != nil {
+			return nil, err
+		}
+		if caller == nil {
+			return nil, components.ErrorCallerNotFound.Sprintf(req.CallerKey)
+		}
 	}
 
 	rv := req.RouteValues
@@ -144,11 +147,15 @@ func GetDetail(ctx *gin.Context, id uint) (*model.SystemPrompt, error) {
 }
 
 func ListByCallerAndRoute(ctx *gin.Context, callerKey string, routeValues []string) ([]model.SystemPrompt, error) {
+	// callerKey 为空：管理控制台「全部」视图，跨 caller 列出，忽略路由过滤。
+	if strings.TrimSpace(callerKey) == "" {
+		return model.ListAllSystemPrompts(ctx)
+	}
 	return model.ListSystemPromptsByCallerAndExactRoute(ctx, callerKey, route.SerializeRouteValues(routeValues))
 }
 
 // ResolveSystemPrompt 根据 callerKey + routeValues 解析所有匹配的系统提示词
-// 策略：前缀匹配 → 按 route_values 从短到长排序 → 全部拼接（从通用到具体）
+// 策略：前缀匹配 → 默认作用域（default）优先，其余按 route_values 从短到长排序 → 全部拼接（从通用到具体）
 func ResolveSystemPrompt(ctx *gin.Context, callerKey string, routeValues []string) (string, error) {
 	prefixes := route.BuildRoutePrefixes(routeValues)
 	prompts, err := model.FindSystemPromptsByCallerAndRoutes(ctx, callerKey, prefixes)
@@ -161,6 +168,10 @@ func ResolveSystemPrompt(ctx *gin.Context, callerKey string, routeValues []strin
 	}
 
 	sort.Slice(prompts, func(i, j int) bool {
+		iDefault, jDefault := model.IsReservedCallerKey(prompts[i].CallerKey), model.IsReservedCallerKey(prompts[j].CallerKey)
+		if iDefault != jDefault {
+			return iDefault // 默认作用域最通用，排最前
+		}
 		return len(prompts[i].RouteValues) < len(prompts[j].RouteValues)
 	})
 

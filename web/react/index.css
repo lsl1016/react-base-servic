@@ -846,3 +846,198 @@
     justify-content: flex-end;
   }
 }
+
+/* ============================================================
+   MCP 连接管理：卡片列表（手风琴展开工具清单）
+   ============================================================ */
+
+#management-cards {
+  min-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.rp-mcp-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rp-mcp-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.rp-mcp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  flex-wrap: wrap;
+  user-select: none;
+}
+
+.rp-mcp-chevron {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.rp-mcp-card.rp-expanded .rp-mcp-chevron {
+  transform: rotate(90deg);
+}
+
+.rp-mcp-name {
+  font-size: 13px;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.rp-mcp-card.rp-mcp-disabled .rp-mcp-name {
+  color: var(--muted);
+}
+
+.rp-mcp-kind {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--primary);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.rp-mcp-endpoint {
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-mcp-toolcount {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.rp-mcp-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.rp-mcp-card-body {
+  display: none;
+  border-top: 1px dashed var(--line);
+  background: var(--panel);
+  padding: 10px 12px;
+}
+
+.rp-mcp-card.rp-expanded .rp-mcp-card-body {
+  display: block;
+}
+
+.rp-mcp-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.rp-mcp-tool-item {
+  min-width: 0;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.rp-mcp-tool-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.rp-mcp-tool-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.rp-mcp-tools-empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rp-mcp-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.rp-mcp-badge-ok {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.rp-mcp-badge-bad {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.rp-mcp-badge-off {
+  color: var(--muted);
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.rp-note-warning {
+  color: #b45309;
+  font-weight: 700;
+}
+
+/* 工具页「MCP 连接」筛选下拉 + 连接名徽标 */
+.rp-mcp-kind-badge {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.12);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.rp-mcp-bound {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.rp-mcp-bound-chip {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  color: var(--primary);
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.rp-mcp-bound-chip.rp-mcp-bound-owner {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.12);
+}

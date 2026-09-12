@@ -69,12 +69,23 @@ func TestToolUserPolicyCRUDAndVisibilityWithLocalMySQL(t *testing.T) {
 	require.Len(t, listed, 1)
 
 	require.NoError(t, model.UpdateToolByToolID(ctx, toolID, map[string]interface{}{"status": 1}))
+	// 可见性会并入「默认作用域」（caller_key=default）下其他用例登记的工具，
+	// 断言只关注本用例 caller 名下的工具。
+	ownVisible := func(tools []model.Tool) []model.Tool {
+		own := make([]model.Tool, 0, len(tools))
+		for i := range tools {
+			if tools[i].CallerKey == callerKey {
+				own = append(own, tools[i])
+			}
+		}
+		return own
+	}
 	visible, err := FindVisibleToolsByCallerAndRoutes(ctx, callerKey, []string{"[]"}, "user_a")
 	require.NoError(t, err)
-	require.Len(t, visible, 1)
+	require.Len(t, ownVisible(visible), 1)
 	visible, err = FindVisibleToolsByCallerAndRoutes(ctx, callerKey, []string{"[]"}, "user_c")
 	require.NoError(t, err)
-	require.Empty(t, visible)
+	require.Empty(t, ownVisible(visible))
 
 	_, err = UpdateToolUserPolicy(ctx, updatePolicyReq(toolID, "user_c"), "codex")
 	require.Error(t, err)
@@ -93,12 +104,12 @@ func TestToolUserPolicyCRUDAndVisibilityWithLocalMySQL(t *testing.T) {
 	require.NoError(t, model.UpdateToolByToolID(ctx, toolID, map[string]interface{}{"status": 1}))
 	visible, err = FindVisibleToolsByCallerAndRoutes(ctx, callerKey, []string{"[]"}, "user_c")
 	require.NoError(t, err)
-	require.Len(t, visible, 1, "black_user_list is reserved and must not affect this release")
+	require.Len(t, ownVisible(visible), 1, "black_user_list is reserved and must not affect this release")
 
 	require.NoError(t, DeleteToolUserPolicy(ctx, toolID, "codex"))
 	visible, err = FindVisibleToolsByCallerAndRoutes(ctx, callerKey, []string{"[]"}, "user_a")
 	require.NoError(t, err)
-	require.Len(t, visible, 1, "deleting the policy must restore unrestricted visibility")
+	require.Len(t, ownVisible(visible), 1, "deleting the policy must restore unrestricted visibility")
 
 	require.NoError(t, model.UpdateToolByToolID(ctx, toolID, map[string]interface{}{"status": 0}))
 	restored, err := CreateToolUserPolicy(ctx, createPolicyReq(toolID, "user_b"), "codex")

@@ -115,7 +115,7 @@ func TestReactPlaygroundPublishesTreeSelectMock(t *testing.T) {
 	require.Contains(t, body, "analysis-theme-select")
 	require.Contains(t, body, "kind: 'tree-select'")
 	require.Contains(t, body, "loadMockAnalysisThemeOptions")
-	require.Contains(t, body, "tag: 'analysis_theme'")
+	require.Contains(t, body, "tag: 'user_select_analysis_theme'")
 }
 
 func TestReactPlaygroundPublishesCallerApiKeyAndPlanTemplateManagement(t *testing.T) {
@@ -150,6 +150,42 @@ func TestReactPlaygroundPublishesCallerApiKeyAndPlanTemplateManagement(t *testin
 				"/caller/copy_config",
 				"/caller/batch_delete",
 				"type=\"password\"",
+			},
+		},
+		{
+			path: "/react-base-service/react/index.js",
+			contains: []string{
+				"title: 'MCP 连接管理'",
+				"listPath: '/react/mcp/list'",
+				"detailPath: '/react/mcp/detail'",
+				"createPath: '/react/mcp/create'",
+				"updatePath: '/react/mcp/update'",
+				"deletePath: '/react/mcp/delete'",
+				"post('/react/mcp/connect'",
+				"rp-mcp-badge",
+				"renderMcpCards()",
+				// 工具页 MCP 工具保护：禁改配置 JSON / 禁删除 + 按连接名筛选
+				"mcpFilter: true",
+				"readonlyTextarea",
+				"item.toolType !== 'mcp'",
+				"refreshMcpConnectionOptions()",
+				"rp-mcp-kind-badge",
+				// Caller 筛选（全部/默认作用域/各 caller）+ 归属 caller 列
+				"callerFilter: true",
+				"loadCallerFilterOptions()",
+				"callerFilterValue()",
+				"createTargetCallerKey()",
+				// MCP 连接绑定 caller
+				"boundCallersText",
+				"boundCallers: splitRouteText(draft.boundCallersText)",
+			},
+		},
+		{
+			path: "/react-base-service/react/playground",
+			contains: []string{
+				`id="management-cards"`,
+				`id="management-mcp-filter"`,
+				`id="management-caller-filter"`,
 			},
 		},
 	} {
@@ -195,7 +231,7 @@ func TestReactSDKAssetsAreServedWithoutIPSLogin(t *testing.T) {
 	}
 }
 
-func TestReactPlaygroundAuthRequiresIPSSession(t *testing.T) {
+func TestReactPlaygroundAuthAnonymousWithoutLogin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	Http(engine)
@@ -207,9 +243,14 @@ func TestReactPlaygroundAuthRequiresIPSSession(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var response struct {
 		ErrNo int `json:"errNo"`
+		Data  struct {
+			UserName string `json:"userName"`
+		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-	require.Equal(t, 110002, response.ErrNo)
+	// IPS 登录鉴权已移除：未登录访问回落到匿名用户，页面可用。
+	require.Equal(t, 0, response.ErrNo)
+	require.Equal(t, "anonymous", response.Data.UserName)
 }
 
 func TestReactPlaygroundAuthEnforcesWhitelist(t *testing.T) {

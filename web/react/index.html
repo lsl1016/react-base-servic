@@ -96,6 +96,13 @@
       <div class="rp-management-tabs" id="management-tabs"></div>
       <div class="rp-management-toolbar">
         <div id="management-title" class="rp-management-title">工具管理</div>
+        <label class="rp-field rp-compact rp-caller-filter-field rp-hidden">
+          <span class="rp-field-label">Caller</span>
+          <select id="management-caller-filter" class="rp-control rp-control-size-default">
+            <option value="">全部</option>
+            <option value="default">默认（全 caller 通用）</option>
+          </select>
+        </label>
         <label class="rp-field rp-compact">
           <span class="rp-field-label">关键字</span>
           <input id="management-keyword" class="rp-control rp-control-size-default" placeholder="搜索" />
@@ -108,18 +115,25 @@
             <option value="disabled">停用</option>
           </select>
         </label>
+        <label class="rp-field rp-compact rp-mcp-filter-field rp-hidden">
+          <span class="rp-field-label">MCP 连接</span>
+          <select id="management-mcp-filter" class="rp-control rp-control-size-default">
+            <option value="">全部</option>
+          </select>
+        </label>
         <div class="rp-management-actions">
           <button id="management-add" class="rp-button rp-primary-btn" type="button">新增</button>
           <button id="management-refresh" class="rp-button" type="button">刷新</button>
         </div>
       </div>
       <div id="management-state" class="rp-state-bar rp-hidden"></div>
-      <div class="rp-table-wrap">
+      <div class="rp-table-wrap" id="management-table-wrap">
         <table class="rp-management-table">
           <thead id="management-head" class="rp-table-head"></thead>
           <tbody id="management-body"></tbody>
         </table>
       </div>
+      <div id="management-cards" class="rp-mcp-list rp-hidden"></div>
     </aside>
   </div>
 

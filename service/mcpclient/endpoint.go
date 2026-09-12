@@ -64,6 +64,13 @@ func isPublicAddr(addr netip.Addr) bool {
 // 仅允许 http/https；主机名为 IP 字面量时直接判定，为域名时解析后逐一判定，
 // 任一解析结果落入禁止网段即拒绝（缓解 DNS 重绑定）。
 func validateEndpoint(raw string) (*url.URL, error) {
+	return validateEndpointOpts(raw, false)
+}
+
+// validateEndpointOpts 是 validateEndpoint 的可选项版本：
+// allowPrivate=true 时放行环回/私网/保留地址，仅供本机开发/演示环境
+// （mcp.allow_private_endpoint 配置开关）显式开启；其余行为一致。
+func validateEndpointOpts(raw string, allowPrivate bool) (*url.URL, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, fmt.Errorf("mcp endpoint is empty")
@@ -82,7 +89,7 @@ func validateEndpoint(raw string) (*url.URL, error) {
 	}
 
 	if addr, parseErr := netip.ParseAddr(host); parseErr == nil {
-		if !isPublicAddr(addr.Unmap()) {
+		if !allowPrivate && !isPublicAddr(addr.Unmap()) {
 			return nil, fmt.Errorf("mcp endpoint host %s is loopback/private/reserved", host)
 		}
 		return u, nil
@@ -97,7 +104,7 @@ func validateEndpoint(raw string) (*url.URL, error) {
 		if !ok {
 			continue
 		}
-		if !isPublicAddr(addr.Unmap()) {
+		if !allowPrivate && !isPublicAddr(addr.Unmap()) {
 			return nil, fmt.Errorf("mcp endpoint host %s resolves to non-public address %s", host, ip)
 		}
 	}

@@ -101,7 +101,36 @@ mcp:
 |---|---|---|
 | git 适配器（`kind: git`） | 启动时按 URL `git clone --depth 1` 到本地缓存（存在则 pull），复用 repotools；私有仓库走 token 环境变量 | ~100 行 |
 | GitHub API 适配器 | `kind: github` 直调 contents/search API，不落本地盘；受 API 限速影响 | ~150 行 |
-| HTTP 鉴权 | 按 server 配置静态凭证头（`Authorization` 等）；当前按需求实现为无鉴权 | ~30 行 |
+| ~~HTTP 鉴权~~ | 已实现：连接管理接口支持 `headers`（如 `Authorization`）附加到每个请求，协议自身管理的头除外 | 已上线 |
 | 会话复用 | HTTP 按次会话改「按 server 常驻会话 + 失效重建」；调用次数高频且 initialize 成为瓶颈时再考虑 | ~60 行 |
 
 接入新 stdio 适配器的步骤：实现工具 → 在 `service/mcpclient` 的 `adapterWhitelist` 注册（可执行路径用字面量）→ 构建到 `bin/` → `custom.yaml` 增加一段 server 配置。
+
+## 4. MCP 连接管理（动态登记）
+
+除 `custom.yaml` 静态声明外，MCP HTTP 连接可经管理接口动态登记（`tblLlmMcpServer` 表，name 全局唯一），
+playground 右侧「MCP 连接」面板提供同能力的页面操作：
+
+| 接口 | 说明 |
+|---|---|
+| `POST /react-base-service/react/mcp/list` | 列出 caller 下的连接（含运行状态、最近检测结果、工具数） |
+| `POST /react-base-service/react/mcp/detail` | 单个连接详情 + 已同步进注册表的工具清单 |
+| `POST /react-base-service/react/mcp/create` | 新增：`rawConfig` 粘贴标准 mcpServers JSON（`{url, headers}`，可一次多条）或结构化字段（`name/kind/endpoint/headers/timeoutMs/boundCallers`） |
+| `POST /react-base-service/react/mcp/update` | 更新端点/请求头/超时/描述/绑定 caller/启停；更新后自动重连重同步，停用会下线其全部注册工具 |
+| `POST /react-base-service/react/mcp/delete` | 删除连接并清理其注册工具 |
+| `POST /react-base-service/react/mcp/connect` | 连接测试：拉起客户端 + tools/list + 写回检测结果 |
+
+行为与边界：
+
+- 工具同步：连接成功后 `tools/list` 结果 upsert 进 `tblLlmTool`（`tool_type=mcp`，toolId=`mcp_<server>_<tool>`），
+  ReAct 运行时经既有 get_tool/execute_tool 两段式加载使用，引擎无感知；
+- 请求头：`headers`（如 `Authorization: Bearer ...`）附加到每个 HTTP 请求，但不允许覆盖协议自身管理的头
+  （Host/Content-Type/Accept/Mcp-Session-Id）；上限 4KB；
+- SSRF：HTTP 端点仍走 `validateEndpoint` 校验（拒绝环回/私网/保留地址）；本机开发/演示环境可用
+  `mcp.allow_private_endpoint: true` 显式放行（生产必须保持关闭）；
+- command/args 形式（npx/uvx）明确拒绝：stdio 仅开放代码内适配器白名单（`kind=repo`）；
+- **caller 绑定**：`boundCallers` 把连接绑到属主之外的多个 caller，工具同步到每个绑定 caller 名下
+ （toolId 追加 `__<callerKey>` 后缀避开全局唯一键，工具名不变）；解绑立即清理该 caller 的工具副本；
+ caller 删除时级联清理绑定行；详情/列表返回 `boundCallers`（属主在首位）；
+- 服务重启时按表内启用记录自动重连并同步（`mcpclient.Bootstrap` 内 `bootstrapDBServers`，含绑定 caller 展开）；
+- 停用/删除会软删除注册工具；重新启用/同名重建会复活软删除行（唯一键约束下的恢复式写入）。

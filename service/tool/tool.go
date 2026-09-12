@@ -133,12 +133,15 @@ func validateToolConfig(raw json.RawMessage, toolType string) error {
 }
 
 func RegisterTool(ctx *gin.Context, req *params.RegisterToolReq, createdBy string) (*model.Tool, error) {
-	caller, err := model.GetActiveCallerByKey(ctx, req.CallerKey)
-	if err != nil {
-		return nil, err
-	}
-	if caller == nil {
-		return nil, components.ErrorCallerNotFound.Sprintf(req.CallerKey)
+	// caller_key=default 是默认作用域伪 caller（全 caller 可用），不要求真实 caller 存在。
+	if !model.IsReservedCallerKey(req.CallerKey) {
+		caller, err := model.GetActiveCallerByKey(ctx, req.CallerKey)
+		if err != nil {
+			return nil, err
+		}
+		if caller == nil {
+			return nil, components.ErrorCallerNotFound.Sprintf(req.CallerKey)
+		}
 	}
 
 	name, err := validateToolName(req.Name)
@@ -195,6 +198,17 @@ func UpdateTool(ctx *gin.Context, req *params.UpdateToolReq, updatedBy string) e
 	}
 	if existing == nil {
 		return components.ErrorToolNotFound.Sprintf(req.ToolID)
+	}
+
+	// MCP 工具的 config 与 toolType 由「MCP 连接」同步管理（tools/list upsert 会覆盖），
+	// 不接受手工修改；名称/描述/状态等展示字段允许调整（下次同步会被服务端清单覆盖）。
+	if existing.ToolType == ToolTypeMCP {
+		if len(req.Config) > 0 {
+			return components.ErrorToolRegisterFailed.Sprintf("MCP 工具的配置 JSON 由 MCP 连接同步管理，不可手工修改")
+		}
+		if req.ToolType != "" && NormalizeToolType(req.ToolType) != ToolTypeMCP {
+			return components.ErrorToolRegisterFailed.Sprintf("MCP 工具不允许修改 toolType")
+		}
 	}
 
 	finalToolType := NormalizeToolType(existing.ToolType)
@@ -269,6 +283,10 @@ func DeleteTool(ctx *gin.Context, toolID string) error {
 	if existing == nil {
 		return components.ErrorToolNotFound.Sprintf(toolID)
 	}
+	// MCP 工具随连接生命周期管理：删除/停用「MCP 连接」时自动清理，不可单独删除。
+	if existing.ToolType == ToolTypeMCP {
+		return components.ErrorToolRegisterFailed.Sprintf("MCP 工具由 MCP 连接同步管理，请在「MCP 连接」面板删除或停用对应连接")
+	}
 	return model.SoftDeleteToolByToolID(ctx, toolID)
 }
 
@@ -285,6 +303,10 @@ func GetDetail(ctx *gin.Context, toolID string) (*model.Tool, error) {
 }
 
 func ListByCallerAndRoute(ctx *gin.Context, callerKey string, routeValues []string) ([]model.Tool, error) {
+	// callerKey 为空：管理控制台「全部」视图，跨 caller 列出，忽略路由过滤。
+	if strings.TrimSpace(callerKey) == "" {
+		return model.ListAllTools(ctx)
+	}
 	return model.ListToolsByCallerAndExactRoute(ctx, callerKey, route.SerializeRouteValues(routeValues))
 }
 

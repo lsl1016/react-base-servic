@@ -491,7 +491,25 @@ const escapeHtml = (value) => String(value ?? '')
 const isEnabled = (item) => Number(item.status) === 1;
 const isPlanEnabled = (item) => item.planEnabled === true || Number(item.planEnabled) === 1;
 
+const mcpStatusBadge = (item) => {
+  if (!isEnabled(item)) return '<span class="rp-mcp-badge rp-mcp-badge-off">已停用</span>';
+  if (item.lastCheckStatus === 'connected') return '<span class="rp-mcp-badge rp-mcp-badge-ok">已连接</span>';
+  if (item.lastCheckStatus === 'disconnected') return `<span class="rp-mcp-badge rp-mcp-badge-bad" title="${escapeHtml(item.lastCheckMessage || '')}">连接异常</span>`;
+  return '<span class="rp-mcp-badge rp-mcp-badge-off">未检测</span>';
+};
+
 const getConfig = () => resolveMountConfig();
+
+// 管理面板 Caller 筛选：'' = 全部（跨 caller 列出），'default' = 默认作用域，其余为具体 callerKey。
+const callerFilterValue = () => document.getElementById('management-caller-filter')?.value ?? '';
+// 新建资源的目标 caller：跟随 Caller 筛选（全部时回落到左上角全局 callerKey）。
+const createTargetCallerKey = () => callerFilterValue() || getConfig().callerKey;
+
+// 弹窗「适用路由」字段与 routeValues 数组的互转（逗号分隔，留空 = [] 通用）。
+const splitRouteText = (text) => String(text ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+const joinRouteValues = (routeValues) => (Array.isArray(routeValues) ? routeValues : []).join(',');
+// 新建时的默认路由：带出左上角全局输入框的值，弹窗内可改。
+const createDefaultRouteText = () => joinRouteValues(getConfig().routeValues);
 
 const resources = {
   caller: {
@@ -523,76 +541,101 @@ const resources = {
     title: '工具管理',
     addText: '新增工具',
     idKey: 'toolId',
+    // 工具页支持「只看 MCP」筛选（toolbar 按钮），筛出 MCP 连接同步进注册表的工具。
+    mcpFilter: true,
+    // 支持 Caller 筛选：全部（跨 caller）/ 默认作用域 / 各 caller。
+    callerFilter: true,
     listPath: '/tool/list',
     createPath: '/tool/register',
     updatePath: '/tool/update',
     deletePath: '/tool/delete',
     deleteBody: (item) => ({ toolId: item.toolId }),
     columns: [
-      ['toolId', '工具标识'], ['name', '工具名称'], ['description', '工具描述'], ['toolType', '工具类型'], ['config', '工具配置'], ['routeValues', '适用方'], ['status', '状态'], ['actions', '操作'],
+      ['toolId', '工具标识'], ['name', '工具名称'], ['description', '工具描述'], ['toolType', '工具类型'], ['callerKey', '归属 caller'], ['config', '工具配置'], ['routeValues', '适用路由'], ['status', '状态'], ['actions', '操作'],
     ],
-    empty: () => ({ name: '', description: '', toolType: 'client', configText: '{}', status: 1 }),
-    toDraft: (item) => ({ ...item, configText: JSON.stringify(item.config ?? {}, null, 2) }),
-    toPayload: (draft, config) => ({
-      toolId: draft.toolId,
-      callerKey: config.callerKey,
-      routeValues: config.routeValues,
-      name: draft.name,
-      description: draft.description,
-      toolType: draft.toolType,
-      config: JSON.parse(draft.configText || '{}'),
-      status: Number(draft.status),
-    }),
-    fields: [
-      ['name', '工具名称'], ['toolType', '工具类型'], ['status', '状态', 'select'], ['description', '工具描述', 'textarea'], ['configText', '工具配置 JSON', 'textarea'],
-    ],
+    empty: () => ({ name: '', description: '', toolType: 'client', callerKey: createTargetCallerKey(), routeText: createDefaultRouteText(), configText: '{}', status: 1 }),
+    toDraft: (item) => ({ ...item, routeText: joinRouteValues(item.routeValues), configText: JSON.stringify(item.config ?? {}, null, 2) }),
+    toPayload: (draft, config) => {
+      const payload = {
+        toolId: draft.toolId,
+        callerKey: draft.callerKey || config.callerKey,
+        routeValues: splitRouteText(draft.routeText),
+        name: draft.name,
+        description: draft.description,
+        toolType: draft.toolType,
+        status: Number(draft.status),
+      };
+      // MCP 工具的配置 JSON 由「MCP 连接」同步管理，更新请求不携带 config（后端同样拒绝）。
+      if (draft.toolType !== 'mcp') payload.config = JSON.parse(draft.configText || '{}');
+      return payload;
+    },
+    fields: (mode, draft) => {
+      const isMcp = draft?.toolType === 'mcp';
+      return [
+        ['name', '工具名称'],
+        ['callerKey', '归属 caller', 'readonly'],
+        ['routeText', '适用路由（逗号分隔）'],
+        ['toolType', '工具类型', isMcp ? 'readonly' : 'text'],
+        ['status', '状态', 'select'],
+        ['description', '工具描述', 'textarea'],
+        ['configText', '工具配置 JSON', isMcp ? 'readonlyTextarea' : 'textarea'],
+      ];
+    },
+    modalNote: (mode, draft) => {
+      if (mode === 'edit' && draft?.toolType === 'mcp') {
+        return 'MCP 工具由「MCP 连接」面板同步管理：配置 JSON 只读，名称/描述在下次连接同步时会被服务端清单覆盖，删除请在「MCP 连接」面板操作。';
+      }
+      return null;
+    },
   },
   systemPrompt: {
     title: '系统提示词管理',
     addText: '新增提示词',
     idKey: 'id',
+    callerFilter: true,
     listPath: '/system-prompt/list',
     createPath: '/system-prompt/register',
     updatePath: '/system-prompt/update',
     deletePath: '/system-prompt/delete',
     deleteBody: (item) => ({ id: item.id }),
     columns: [
-      ['id', 'ID'], ['name', '名称'], ['content', '内容'], ['routeValues', '适用方'], ['status', '状态'], ['actions', '操作'],
+      ['id', 'ID'], ['name', '名称'], ['content', '内容'], ['callerKey', '归属 caller'], ['routeValues', '适用路由'], ['status', '状态'], ['actions', '操作'],
     ],
-    empty: () => ({ name: '', content: '', status: 1 }),
-    toDraft: (item) => ({ ...item }),
+    empty: () => ({ name: '', content: '', callerKey: createTargetCallerKey(), routeText: createDefaultRouteText(), status: 1 }),
+    toDraft: (item) => ({ ...item, routeText: joinRouteValues(item.routeValues) }),
     toPayload: (draft, config) => ({
       id: draft.id,
-      callerKey: config.callerKey,
-      routeValues: config.routeValues,
+      callerKey: draft.callerKey || config.callerKey,
+      routeValues: splitRouteText(draft.routeText),
       name: draft.name,
       content: draft.content,
       status: Number(draft.status),
     }),
-    fields: [
-      ['name', '名称'], ['status', '状态', 'select'], ['content', '内容', 'textarea'],
+    fields: (mode) => [
+      ['name', '名称'], ['callerKey', '归属 caller', 'readonly'], ['routeText', '适用路由（逗号分隔）'], ['status', '状态', 'select'], ['content', '内容', 'textarea'],
     ],
   },
   skill: {
     title: 'skill 管理',
     addText: '新增 skill',
     idKey: 'skillId',
+    callerFilter: true,
     listPath: '/skill/list',
     createPath: '/skill/create',
     updatePath: '/skill/update',
     deletePath: '/skill/delete',
     deleteBody: (item) => ({ skillId: item.skillId }),
     columns: [
-      ['skillId', 'skill 标识'], ['name', '名称'], ['description', '描述'], ['triggerCondition', '触发条件'], ['isDefault', '默认'], ['routeValues', '适用方'], ['status', '状态'], ['actions', '操作'],
+      ['skillId', 'skill 标识'], ['name', '名称'], ['description', '描述'], ['triggerCondition', '触发条件'], ['isDefault', '默认'], ['callerKey', '归属 caller'], ['routeValues', '适用路由'], ['status', '状态'], ['actions', '操作'],
     ],
     empty: () => ({
-      name: '', description: '', triggerCondition: '', forbiddenCondition: '', executionSteps: '', businessContext: '', promptSupplement: '', isDefault: 0, status: 1,
+      name: '', description: '', triggerCondition: '', forbiddenCondition: '', executionSteps: '', businessContext: '', promptSupplement: '', isDefault: 0, callerKey: createTargetCallerKey(), routeText: createDefaultRouteText(), status: 1,
     }),
-    toDraft: (item) => ({ ...item }),
+    toDraft: (item) => ({ ...item, routeText: joinRouteValues(item.routeValues) }),
     toPayload: (draft, config) => ({
       skillId: draft.skillId,
-      callerKey: config.callerKey,
-      routeValues: config.routeValues,
+      callerKey: draft.callerKey || config.callerKey,
+      routeValues: splitRouteText(draft.routeText),
       name: draft.name,
       description: draft.description,
       triggerCondition: draft.triggerCondition,
@@ -603,8 +646,8 @@ const resources = {
       isDefault: Number(draft.isDefault),
       status: Number(draft.status),
     }),
-    fields: [
-      ['name', '名称'], ['status', '状态', 'select'], ['isDefault', '默认', 'defaultSelect'], ['description', '描述', 'textarea'], ['triggerCondition', '触发条件', 'textarea'], ['forbiddenCondition', '禁用条件', 'textarea'], ['executionSteps', '执行步骤', 'textarea'], ['businessContext', '业务上下文', 'textarea'], ['promptSupplement', '补充提示词', 'textarea'],
+    fields: (mode) => [
+      ['name', '名称'], ['callerKey', '归属 caller', 'readonly'], ['routeText', '适用路由（逗号分隔）'], ['status', '状态', 'select'], ['isDefault', '默认', 'defaultSelect'], ['description', '描述', 'textarea'], ['triggerCondition', '触发条件', 'textarea'], ['forbiddenCondition', '禁用条件', 'textarea'], ['executionSteps', '执行步骤', 'textarea'], ['businessContext', '业务上下文', 'textarea'], ['promptSupplement', '补充提示词', 'textarea'],
     ],
   },
   apiKey: {
@@ -619,22 +662,22 @@ const resources = {
     columns: [
       ['id', 'ID'], ['name', '名称'], ['apiKeyDisplay', 'API Key'], ['routeValues', '适用方'], ['status', '状态'], ['actions', '操作'],
     ],
-    empty: () => ({ name: '', apiKey: '', status: 1 }),
-    toDraft: (item) => ({ ...item, apiKeyDisplay: item.apiKey || '******', apiKey: '' }),
+    empty: () => ({ name: '', apiKey: '', routeText: createDefaultRouteText(), status: 1 }),
+    toDraft: (item) => ({ ...item, routeText: joinRouteValues(item.routeValues), apiKeyDisplay: item.apiKey || '******', apiKey: '' }),
     toPayload: (draft, config, mode) => {
       const payload = {
         id: draft.id,
-        callerKey: config.callerKey,
-        routeValues: config.routeValues,
+        callerKey: draft.callerKey || config.callerKey,
+        routeValues: splitRouteText(draft.routeText),
         name: draft.name,
         status: Number(draft.status),
       };
       if (mode === 'create' || draft.apiKey) payload.apiKey = draft.apiKey;
       return payload;
     },
-    fields: (mode) => mode === 'create'
-      ? [['name', '名称'], ['apiKey', 'API Key', 'password']]
-      : [['name', '名称'], ['status', '状态', 'select'], ['apiKey', '新 API Key', 'password']],
+    fields: (mode) => (mode === 'create'
+      ? [['name', '名称'], ['routeText', '适用路由（逗号分隔）'], ['apiKey', 'API Key', 'password']]
+      : [['name', '名称'], ['routeText', '适用路由（逗号分隔）'], ['status', '状态', 'select'], ['apiKey', '新 API Key', 'password']]),
   },
   planTemplate: {
     title: '模板列表',
@@ -707,6 +750,55 @@ const resources = {
       ? [['templateId', '模板 ID'], ['status', '状态', 'select'], ['templateText', '模板 JSON', 'codeTextarea']]
       : [['templateId', '模板 ID', 'readonly'], ['revision', 'Revision', 'readonly'], ['status', '状态', 'select'], ['templateText', '模板 JSON', 'codeTextarea']],
   },
+  mcp: {
+    title: 'MCP 连接管理',
+    tabText: 'MCP 连接',
+    itemName: 'MCP 连接',
+    addText: '手动配置',
+    idKey: 'serverId',
+    cardList: true,
+    toDraft: (item) => ({ ...item }),
+    listPath: '/react/mcp/list',
+    detailPath: '/react/mcp/detail',
+    createPath: '/react/mcp/create',
+    updatePath: '/react/mcp/update',
+    deletePath: '/react/mcp/delete',
+    deleteBody: (item) => ({ callerKey: getConfig().callerKey, serverId: item.serverId }),
+    empty: () => ({
+      rawConfig: JSON.stringify({
+        mcpServers: {
+          'mcp-server': {
+            url: 'http://127.0.0.1:18080/api/mcp',
+            headers: { Authorization: 'Bearer <token>' },
+          },
+        },
+      }, null, 2),
+    }),
+    modalNote: (mode) => (mode === 'create'
+      ? '请从 MCP Servers 的介绍页面复制配置 JSON，并粘贴到输入框中。仅支持 url 形式（HTTP MCP）；command/args 形式（npx/uvx）不在基座开放范围内。<span class="rp-note-warning">配置前请确认来源，甄别风险。</span>'
+      : '修改端点、请求头、超时或绑定 caller 后会自动重连并重新同步工具清单；停用会同时下线其同步的全部注册工具。绑定 caller 填逗号分隔的 callerKey（属主恒定生效，不用填）。'),
+    loadDetail: async (item, config) => {
+      const detail = await post('/react/mcp/detail', { callerKey: config.callerKey, serverId: item.serverId });
+      const server = detail?.server ?? {};
+      const bound = Array.isArray(server.boundCallers) ? server.boundCallers : [];
+      return { ...item, ...server, boundCallersText: bound.slice(1).join(','), headersText: JSON.stringify(detail?.headers ?? {}, null, 2) };
+    },
+    toPayload: (draft, config, mode) => (mode === 'create'
+      ? { callerKey: config.callerKey, rawConfig: draft.rawConfig }
+      : {
+        callerKey: config.callerKey,
+        serverId: draft.serverId,
+        endpoint: draft.endpoint,
+        headers: JSON.parse(draft.headersText || '{}'),
+        timeoutMs: Number(draft.timeoutMs) || 30000,
+        description: draft.description || '',
+        boundCallers: splitRouteText(draft.boundCallersText),
+        status: Number(draft.status),
+      }),
+    fields: (mode) => (mode === 'create'
+      ? [['rawConfig', '原始配置（mcpServers JSON）', 'codeTextarea']]
+      : [['name', '名称', 'readonly'], ['kind', '传输', 'readonly'], ['boundCallersText', '绑定 caller（逗号分隔）'], ['endpoint', '端点 URL'], ['timeoutMs', '超时(ms)'], ['status', '状态', 'select'], ['description', '描述', 'textarea'], ['headersText', '请求头 JSON', 'codeTextarea']]),
+  },
 };
 
 const management = {
@@ -714,6 +806,8 @@ const management = {
   items: [],
   draft: null,
   mode: 'create',
+  expandedMcp: new Set(),
+  mcpConnection: '',
   init() {
     $('management-tabs').innerHTML = Object.entries(resources).map(([key, resource]) => (
       `<button class="rp-button rp-management-tab" data-type="${key}" type="button">${resource.tabText ?? resource.title.replace('管理', '')}</button>`
@@ -722,17 +816,25 @@ const management = {
       const button = event.target.closest('[data-type]');
       if (!button) return;
       this.type = button.dataset.type;
+      this.mcpConnection = '';
       this.renderShell();
       this.reload();
     });
     $('management-keyword').addEventListener('input', () => this.renderTable());
     $('management-status').addEventListener('change', () => this.renderTable());
+    $('management-caller-filter').addEventListener('change', () => this.reload());
+    this.loadCallerFilterOptions();
+    $('management-mcp-filter').addEventListener('change', () => {
+      this.mcpConnection = $('management-mcp-filter').value;
+      this.renderTable();
+    });
     $('management-add').addEventListener('click', () => this.openCreate());
     $('management-refresh').addEventListener('click', () => this.reload());
     $('management-modal-close').addEventListener('click', () => this.closeModal());
     $('management-modal-cancel').addEventListener('click', () => this.closeModal());
     $('management-modal-save').addEventListener('click', () => this.save());
     $('management-body').addEventListener('click', (event) => this.handleTableClick(event));
+    $('management-cards').addEventListener('click', (event) => this.handleTableClick(event));
     this.renderShell();
   },
   resource() { return resources[this.type]; },
@@ -745,17 +847,46 @@ const management = {
   },
   renderShell() {
     const resource = this.resource();
+    const useCards = Boolean(resource.cardList);
     $('management-title').textContent = resource.title;
     $('management-add').textContent = resource.addText;
     document.querySelectorAll('.rp-management-tab').forEach((tab) => tab.classList.toggle('rp-active', tab.dataset.type === this.type));
-    $('management-head').innerHTML = `<tr class="rp-table-row">${resource.columns.map(([, label]) => `<th class="rp-table-cell rp-table-header-cell">${label}</th>`).join('')}</tr>`;
+    $('management-table-wrap').classList.toggle('rp-hidden', useCards);
+    $('management-cards').classList.toggle('rp-hidden', !useCards);
+    document.querySelector('.rp-caller-filter-field')?.classList.toggle('rp-hidden', !resource.callerFilter);
+    document.querySelector('.rp-mcp-filter-field')?.classList.toggle('rp-hidden', !resource.mcpFilter);
+    $('management-head').innerHTML = useCards ? '' : `<tr class="rp-table-row">${resource.columns.map(([, label]) => `<th class="rp-table-cell rp-table-header-cell">${label}</th>`).join('')}</tr>`;
+  },
+  // 拉取 caller 清单填充筛选下拉：固定「全部 / 默认」+ 扁平的 caller 列表（平台并入文案）。
+  async loadCallerFilterOptions() {
+    const select = $('management-caller-filter');
+    const current = select.value;
+    try {
+      const fetched = await post('/caller/list', {});
+      const callers = Array.isArray(fetched) ? fetched : [];
+      let html = '<option value="">全部</option><option value="default">默认（全 caller 通用）</option>';
+      for (const item of callers) {
+        const platform = String(item.platform || '').trim();
+        const suffix = [
+          item.name && item.name !== item.callerKey ? item.name : '',
+          platform,
+        ].filter(Boolean).map(escapeHtml).join(' · ');
+        html += `<option value="${escapeHtml(item.callerKey)}">${escapeHtml(item.callerKey)}${suffix ? `（${suffix}）` : ''}</option>`;
+      }
+      select.innerHTML = html;
+      if ([...select.options].some((option) => option.value === current)) select.value = current;
+    } catch (error) {
+      this.setState(`Caller 清单加载失败：${error.message || error}`, true);
+    }
   },
   async reload() {
     const resource = this.resource();
     const config = this.config();
     this.setState('加载中...');
     try {
-      const data = await post(resource.listPath, { callerKey: config.callerKey, routeValues: config.routeValues });
+      // Caller 筛选资源：选中值优先（空 = 全部 caller），未启用筛选的资源沿用全局 callerKey。
+      const callerKey = resource.callerFilter ? callerFilterValue() : config.callerKey;
+      const data = await post(resource.listPath, { callerKey, routeValues: config.routeValues });
       this.items = Array.isArray(data) ? data.map(resource.toDraft) : [];
       this.setState('');
       this.renderTable();
@@ -768,28 +899,51 @@ const management = {
   filteredItems() {
     const keyword = $('management-keyword').value.trim().toLowerCase();
     const status = $('management-status').value;
+    const mcpConnection = this.resource().mcpFilter ? (this.mcpConnection || '') : '';
     return this.items.filter((item) => {
       const text = JSON.stringify(item).toLowerCase();
       const statusMatched = status === 'all' || (status === 'enabled' ? isEnabled(item) : !isEnabled(item));
-      return (!keyword || text.includes(keyword)) && statusMatched;
+      const mcpMatched = !mcpConnection || (item.toolType === 'mcp' && item.config?.mcpServer === mcpConnection);
+      return (!keyword || text.includes(keyword)) && statusMatched && mcpMatched;
     });
+  },
+  // 按当前数据里出现的 MCP 连接名刷新「MCP 连接」筛选下拉（基于未过滤的全量 items，避免选中后选项塌缩）。
+  refreshMcpConnectionOptions() {
+    const select = $('management-mcp-filter');
+    if (!select || !this.resource().mcpFilter) return;
+    const names = [...new Set(this.items.filter((item) => item.toolType === 'mcp' && item.config?.mcpServer).map((item) => item.config.mcpServer))];
+    const current = this.mcpConnection;
+    select.innerHTML = '<option value="">全部</option>' + names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    this.mcpConnection = names.includes(current) ? current : '';
+    select.value = this.mcpConnection;
   },
   renderValue(key, item) {
     if (key === 'actions') {
-      const deleteButton = this.resource().deletePath
+      // MCP 工具随连接生命周期管理：不可单独删除（修改仍可用，但配置 JSON 只读）。
+      const deleteButton = this.resource().deletePath && item.toolType !== 'mcp'
         ? '<button class="rp-button rp-link-btn rp-danger-link" data-action="delete" type="button">删除</button>'
         : '';
       return `<div class="rp-row-actions"><button class="rp-button rp-link-btn" data-action="edit" type="button">修改</button>${deleteButton}</div>`;
     }
     if (key === 'status') return `<button class="rp-button rp-switch ${isEnabled(item) ? 'rp-on' : ''}" data-action="toggle" type="button" title="${isEnabled(item) ? '启用' : '停用'}"></button>`;
     if (key === 'planEnabled') return `<button class="rp-button rp-switch ${isPlanEnabled(item) ? 'rp-on' : ''}" data-action="toggle-plan" type="button" title="Plan ${isPlanEnabled(item) ? '启用' : '停用'}"></button>`;
+    if (key === 'callerKey' && this.resource().callerFilter) return item.callerKey === 'default' ? '<span class="rp-mcp-badge rp-mcp-badge-ok" title="挂在 default 伪 caller 下，全部 caller 的请求都能解析到">默认（全 caller）</span>' : escapeHtml(shortText(item.callerKey, 24));
+    if (key === 'toolType' && item.toolType === 'mcp') {
+      const server = item.config?.mcpServer || '';
+      return `<span class="rp-mcp-kind-badge" title="MCP 连接：${escapeHtml(server)}">MCP·${escapeHtml(server)}</span>`;
+    }
     if (key === 'routeValues') return escapeHtml(Array.isArray(item.routeValues) && item.routeValues.length ? item.routeValues.join(',') : '[]');
     if (key === 'config') return escapeHtml(shortText(item.configText ?? item.config, 64));
     return escapeHtml(shortText(item[key], 72));
   },
   renderTable() {
     const resource = this.resource();
+    if (resource.cardList) {
+      this.renderMcpCards();
+      return;
+    }
     const rows = this.filteredItems();
+    this.refreshMcpConnectionOptions();
     if (!rows.length) {
       $('management-body').innerHTML = `<tr class="rp-table-row"><td class="rp-table-cell rp-table-empty-cell" colspan="${resource.columns.length}">暂无数据</td></tr>`;
       return;
@@ -799,8 +953,100 @@ const management = {
     )).join('');
     this.visibleItems = rows;
   },
+  // MCP 连接卡片列表：每张卡片 = 头部（名称/传输/状态/端点/工具数/操作）+ 可展开工具清单。
+  renderMcpCards() {
+    const rows = this.filteredItems();
+    const container = $('management-cards');
+    if (!rows.length) {
+      container.innerHTML = '<div class="rp-mcp-empty">暂无 MCP 连接，点击「手动配置」粘贴 mcpServers JSON 登记</div>';
+      this.visibleItems = rows;
+      return;
+    }
+    container.innerHTML = rows.map((item, index) => this.renderMcpCard(item, index)).join('');
+    this.visibleItems = rows;
+    // 刷新后展开态保留但工具明细丢失（列表接口不返回 tools），异步补拉详情。
+    rows.forEach((item) => {
+      if (this.expandedMcp.has(item.serverId) && !Array.isArray(item.tools)) {
+        this.loadMcpTools(item);
+      }
+    });
+  },
+  async loadMcpTools(item) {
+    try {
+      const detail = await post('/react/mcp/detail', { callerKey: this.config().callerKey, serverId: item.serverId });
+      item.tools = detail?.server?.tools ?? [];
+    } catch (error) {
+      this.setState(error.message || '加载工具清单失败', true);
+      return;
+    }
+    if (this.type === 'mcp') this.renderTable();
+  },
+  renderMcpCard(item, index) {
+    const enabled = isEnabled(item);
+    const expanded = this.expandedMcp.has(item.serverId);
+    const tools = Array.isArray(item.tools) ? item.tools : [];
+    // 工具同步目标 caller：属主（绿）+ 绑定 caller（蓝）。
+    const boundCallers = Array.isArray(item.boundCallers) ? item.boundCallers : [];
+    const boundLine = boundCallers.length
+      ? `<div class="rp-mcp-bound">同步 caller：${boundCallers.map((caller, i) => `<span class="rp-mcp-bound-chip${i === 0 ? ' rp-mcp-bound-owner' : ''}" title="${i === 0 ? '属主 caller（登记方，恒定生效）' : '绑定 caller'}">${escapeHtml(caller)}</span>`).join('')}</div>`
+      : '';
+    return `
+      <div class="rp-mcp-card${enabled ? '' : ' rp-mcp-disabled'}${expanded ? ' rp-expanded' : ''}" data-index="${index}">
+        <div class="rp-mcp-card-head" data-action="expand" title="展开/收起工具清单">
+          <span class="rp-mcp-chevron" aria-hidden="true">▸</span>
+          <span class="rp-mcp-name">${escapeHtml(item.name)}</span>
+          <span class="rp-mcp-kind">${escapeHtml(item.kind)}</span>
+          ${mcpStatusBadge(item)}
+          <span class="rp-mcp-endpoint" title="${escapeHtml(item.endpoint)}">${escapeHtml(shortText(item.endpoint, 36))}</span>
+          <span class="rp-mcp-toolcount">${item.toolCount ?? tools.length} 工具</span>
+          <div class="rp-row-actions rp-mcp-actions">
+            <button class="rp-button rp-link-btn" data-action="connect" type="button">测试连接</button>
+            <button class="rp-button rp-link-btn" data-action="edit" type="button">修改</button>
+            <button class="rp-button rp-link-btn rp-danger-link" data-action="delete" type="button">删除</button>
+            <button class="rp-button rp-switch ${enabled ? 'rp-on' : ''}" data-action="toggle" type="button" title="${enabled ? '停用' : '启用'}"></button>
+          </div>
+        </div>
+        <div class="rp-mcp-card-body">
+          ${boundLine}
+          ${tools.length ? `<div class="rp-mcp-tools-grid">${tools.map((tool) => `
+            <div class="rp-mcp-tool-item">
+              <span class="rp-mcp-tool-name">${escapeHtml(tool.name)}</span>
+              <span class="rp-mcp-tool-desc">${escapeHtml(tool.description || '暂无描述')}</span>
+            </div>`).join('')}</div>`
+    : '<div class="rp-mcp-tools-empty">尚未同步到工具清单，点击「测试连接」拉取。</div>'}
+        </div>
+      </div>`;
+  },
+  async toggleMcpExpand(event) {
+    const item = this.itemFromEvent(event);
+    if (!item) return;
+    if (this.expandedMcp.has(item.serverId)) {
+      this.expandedMcp.delete(item.serverId);
+      this.renderTable();
+      return;
+    }
+    this.expandedMcp.add(item.serverId);
+    // 列表不带工具明细，首次展开时按需拉取详情。
+    if (!Array.isArray(item.tools)) {
+      await this.loadMcpTools(item);
+      return;
+    }
+    this.renderTable();
+  },
+  async connectMcp(item) {
+    this.setState(`正在连接 ${item.name}...`);
+    try {
+      const result = await post('/react/mcp/connect', { callerKey: this.config().callerKey, serverId: item.serverId });
+      await this.reload();
+      this.expandedMcp.add(item.serverId);
+      this.setState(`${item.name} 连接成功，已同步 ${result?.toolCount ?? 0} 个工具`);
+      this.renderTable();
+    } catch (error) {
+      this.setState(error.message || '连接失败', true);
+    }
+  },
   itemFromEvent(event) {
-    const row = event.target.closest('tr[data-index]');
+    const row = event.target.closest('[data-index]');
     if (!row) return null;
     return this.visibleItems[Number(row.dataset.index)];
   },
@@ -813,6 +1059,8 @@ const management = {
     if (action === 'delete') this.remove(item);
     if (action === 'toggle') this.toggle(item);
     if (action === 'toggle-plan') this.togglePlan(item);
+    if (action === 'expand') this.toggleMcpExpand(event);
+    if (action === 'connect') this.connectMcp(item);
   },
   openCreate() {
     this.mode = 'create';
@@ -844,9 +1092,10 @@ const management = {
   },
   renderModal() {
     const resource = this.resource();
-    const fields = typeof resource.fields === 'function' ? resource.fields(this.mode) : resource.fields;
+    const fields = typeof resource.fields === 'function' ? resource.fields(this.mode, this.draft) : resource.fields;
+    const note = typeof resource.modalNote === 'function' ? resource.modalNote(this.mode, this.draft) : resource.modalNote;
     $('management-modal-title').textContent = this.mode === 'create' ? resource.addText : `编辑${resource.itemName ?? resource.title.replace('管理', '')}`;
-    $('management-modal-body').innerHTML = `<div class="rp-form-grid">${fields.map(([key, label, type]) => {
+    $('management-modal-body').innerHTML = `${note ? `<div class="rp-operation-note">${note}</div>` : ''}<div class="rp-form-grid">${fields.map(([key, label, type]) => {
       const value = this.draft[key] ?? '';
       if (type === 'select') {
         return `<label class="rp-field"><span class="rp-field-label">${label}</span><select class="rp-control rp-control-size-default" data-field="${key}"><option value="1" ${Number(value) === 1 ? 'selected' : ''}>启用</option><option value="0" ${Number(value) === 0 ? 'selected' : ''}>停用</option></select></label>`;
@@ -854,10 +1103,11 @@ const management = {
       if (type === 'defaultSelect') {
         return `<label class="rp-field"><span class="rp-field-label">${label}</span><select class="rp-control rp-control-size-default" data-field="${key}"><option value="0" ${Number(value) === 0 ? 'selected' : ''}>否</option><option value="1" ${Number(value) === 1 ? 'selected' : ''}>是</option></select></label>`;
       }
-      if (type === 'textarea' || type === 'codeTextarea') {
-        const codeClass = type === 'codeTextarea' ? ' rp-code-textarea' : '';
-        const spellcheck = type === 'codeTextarea' ? ' spellcheck="false"' : '';
-        return `<label class="rp-field rp-span-all"><span class="rp-field-label">${label}</span><textarea class="rp-control rp-textarea${codeClass}" data-field="${key}"${spellcheck}>${escapeHtml(value)}</textarea></label>`;
+      if (type === 'textarea' || type === 'codeTextarea' || type === 'readonlyTextarea') {
+        const codeClass = type !== 'textarea' ? ' rp-code-textarea' : '';
+        const spellcheck = type !== 'textarea' ? ' spellcheck="false"' : '';
+        const frozen = type === 'readonlyTextarea' ? ' readonly disabled' : '';
+        return `<label class="rp-field rp-span-all"><span class="rp-field-label">${label}</span><textarea class="rp-control rp-textarea${codeClass}" data-field="${key}"${spellcheck}${frozen}>${escapeHtml(value)}</textarea></label>`;
       }
       if (type === 'password') {
         const placeholder = this.mode === 'edit' ? '留空表示不修改' : '请输入 API Key';
@@ -892,6 +1142,7 @@ const management = {
   },
   async remove(item) {
     if (!this.resource().deletePath) return;
+    if (item.toolType === 'mcp') return; // MCP 工具由「MCP 连接」管理，不可单独删除
     if (!confirm('确认删除吗？')) return;
     try {
       await post(this.resource().deletePath, this.resource().deleteBody(item));

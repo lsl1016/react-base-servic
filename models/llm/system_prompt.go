@@ -119,11 +119,24 @@ func ListSystemPromptsByCallerAndExactRoute(ctx *gin.Context, callerKey string, 
 	return prompts, nil
 }
 
-// FindSystemPromptsByCallerAndRoutes 按 callerKey + 路由前缀匹配查询系统提示词
+// FindSystemPromptsByCallerAndRoutes 按 callerKey + 路由前缀匹配查询系统提示词；
+// 同时并入「默认作用域」（caller_key=default）下命中的提示词，对全部 caller 生效。
 func FindSystemPromptsByCallerAndRoutes(ctx *gin.Context, callerKey string, routePrefixes []string) ([]SystemPrompt, error) {
 	var prompts []SystemPrompt
 	err := helpers.MysqlClientLLM.Model(&SystemPrompt{}).WithContext(ctx).
-		Where("caller_key = ? AND status = 1 AND route_values IN ?", callerKey, routePrefixes).
+		Where("caller_key IN ? AND status = 1 AND route_values IN ?", CallerScopeKeys(callerKey), routePrefixes).
+		Find(&prompts).Error
+	if err != nil {
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return prompts, nil
+}
+
+// ListAllSystemPrompts 列出全部 caller 的系统提示词（管理控制台「全部」视图用）。
+func ListAllSystemPrompts(ctx *gin.Context) ([]SystemPrompt, error) {
+	var prompts []SystemPrompt
+	err := helpers.MysqlClientLLM.Model(&SystemPrompt{}).WithContext(ctx).
+		Order("caller_key ASC, created_at DESC").
 		Find(&prompts).Error
 	if err != nil {
 		return nil, components.ErrorDbSelect.Wrap(err)

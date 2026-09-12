@@ -10,13 +10,14 @@
 | 计划确认 | `create_plan` Meta Tool：复杂任务先提交分步计划，前端计划卡片 + 「开始任务」确认后按计划执行（进度走 todo）；`llm.react.allow_plan: false` 可关闭（未配置默认开启） |
 | 会话管理 | 会话隐式创建/复用（事务加锁 + 归属校验）、会话列表、并发 run 互斥、软删状态 |
 | 历史回放 | 持久化消息还原为与实时协议同形的事件流（`/react/session/events`），内置回放页面 `/react/replay` |
-| 工具体系 | Business Tool 注册（http/client/mcp 三类）、两段式加载、输入 Schema 校验、白名单、异步提交型工具；MCP stdio 客户端按配置拉起适配器子进程并自动同步工具进注册表（`custom.yaml` `mcp` 段，无鉴权，本机受信环境） |
-| Skill 体系 | Skill 注册 + 摘要索引注入 system 前缀 + get_skill 按需加载完整说明 |
-| 系统提示词 | 按 callerKey + routeValues 前缀匹配解析，多条由通用到具体拼接 |
+| 工具体系 | Business Tool 注册（http/client/mcp 三类）、两段式加载、输入 Schema 校验、白名单、异步提交型工具；MCP 客户端双来源：`custom.yaml` `mcp` 段静态声明 + 「MCP 连接管理」接口动态登记（`tblLlmMcpServer`，支持粘贴 mcpServers JSON、请求头透传、连接测试、启停与工具清单同步），工具自动进注册表供 ReAct 运行时使用 |
+| Skill 体系 | Skill 注册 + 摘要索引注入 system 前缀 + get_skill 按需加载完整说明；支持 `default` 默认作用域 |
+| 系统提示词 | 按 callerKey + routeValues 前缀匹配解析，多条由通用到具体拼接；支持 `default` 默认作用域（全 caller 共享，拼接在最前） |
 | 异步任务 | 提交快照落库、`<async_tasks>` 提醒注入、resolve/get 闭环工具、Provider 状态同步框架（可插拔） |
 | 产物与附件 | python_exec 沙箱执行 + COS 产物下载（支持本地目录存储模式）；csv/md/txt 附件上传与引用 |
 | 轮次反馈 | run 级点赞/点踩与问题反馈，会话维度回显 |
 | 模型管理 | 用户自定义模型（modelHash 直引）、模型白名单、积分 |
+| 默认作用域 | 工具/系统提示词/skill 可挂在保留伪 caller `default` 下，全部 caller 的请求自动合并解析；管理面板三类资源支持 全部/默认/各 caller（按平台分组）筛选，新建跟随筛选落到目标作用域 |
 | 内置页面 | playground 联调页（`/react/playground`）、回放页（`/react/replay`）、TypeScript SDK |
 
 ## 快速开始

@@ -2,7 +2,7 @@
 -- react-base-service 建库建表脚本（新环境全量初始化）
 --
 -- 说明：
--- 1. 本脚本整合基座服务运行所需的全部 17 张表（含各历史迁移的最终列状态）。
+-- 1. 本脚本整合基座服务运行所需的全部 19 张表（含各历史迁移的最终列状态）。
 -- 2. 基座服务不含知识库与 Plan 模式，相关表/列已移除。
 -- 3. tblLlmReactSession/tblLlmReactRun/tblLlmReactMessage 等表在源仓库中无
 --    CREATE TABLE 存档（仅存于现网库），此处按 GORM 模型定义忠实重建；
@@ -107,6 +107,46 @@ CREATE TABLE IF NOT EXISTS `tblLlmSkill` (
     INDEX `idx_caller_route` (`caller_key`, `route_values`(255)),
     INDEX `idx_caller_status` (`caller_key`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM技能表';
+
+-- MCP 连接注册表（管理接口登记的 MCP 服务器；启动时拉起客户端并同步工具进 tblLlmTool）
+CREATE TABLE IF NOT EXISTS `tblLlmMcpServer` (
+    `id`                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `server_id`          VARCHAR(64)  NOT NULL COMMENT '连接唯一标识(UUID)',
+    `name`               VARCHAR(32)  NOT NULL COMMENT '服务器名(工具注册表前缀,全局唯一)',
+    `kind`               VARCHAR(16)  NOT NULL DEFAULT 'http' COMMENT '传输类型: http/http_sdk/repo',
+    `endpoint`           VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'HTTP MCP 端点URL',
+    `headers`            TEXT         NULL COMMENT '附加请求头(JSON, 如 Authorization)',
+    `env`                TEXT         NULL COMMENT 'stdio 适配器环境变量(JSON, 仅白名单kind)',
+    `timeout_ms`         INT          NOT NULL DEFAULT 30000 COMMENT '单次操作超时毫秒',
+    `description`        VARCHAR(255) NOT NULL DEFAULT '' COMMENT '描述',
+    `status`             TINYINT      NOT NULL DEFAULT 1 COMMENT '状态: 0=停用 1=启用',
+    `last_check_status`  VARCHAR(16)  NOT NULL DEFAULT 'unknown' COMMENT '最近连接检测: connected/disconnected/unknown',
+    `last_check_message` VARCHAR(512) NOT NULL DEFAULT '' COMMENT '最近连接检测信息',
+    `last_check_at`      DATETIME     NULL COMMENT '最近连接检测时间',
+    `caller_key`         VARCHAR(32)  NOT NULL COMMENT '所属caller',
+    `created_by`         VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '创建人',
+    `updated_by`         VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '更新人',
+    `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted_at`         BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '删除标记(0=未删除)',
+    UNIQUE KEY `uk_server_id` (`server_id`),
+    UNIQUE KEY `uk_name` (`name`),
+    INDEX `idx_caller` (`caller_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP连接注册表';
+
+-- MCP 连接与 caller 的绑定（一个连接的工具同步到每个绑定的 caller；连接表 caller_key 为属主，恒定生效）
+CREATE TABLE IF NOT EXISTS `tblLlmMcpServerCaller` (
+    `id`         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `server_id`  VARCHAR(64) NOT NULL COMMENT 'tblLlmMcpServer.server_id',
+    `caller_key` VARCHAR(32) NOT NULL COMMENT '绑定的caller（工具同步到该caller名下）',
+    `status`     TINYINT     NOT NULL DEFAULT 1 COMMENT '状态: 0=停用 1=启用',
+    `created_by` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '创建人',
+    `created_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted_at` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '删除标记(0=未删除)',
+    UNIQUE KEY `uk_server_caller` (`server_id`, `caller_key`),
+    INDEX `idx_caller` (`caller_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='MCP连接caller绑定表';
 
 -- API Key 表（caller 级模型调用凭证，按 callerKey+routeValues 解析）
 CREATE TABLE IF NOT EXISTS `tblLlmApiKey` (

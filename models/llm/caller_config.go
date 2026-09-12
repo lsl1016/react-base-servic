@@ -147,6 +147,7 @@ func SoftDeleteCallerConfigsWithDB(tx *gorm.DB, callerKey string) (map[string]in
 		{key: "systemPrompts", model: &SystemPrompt{}, where: "caller_key = ?", args: []interface{}{callerKey}},
 		{key: "tools", model: &Tool{}, where: "caller_key = ?", args: []interface{}{callerKey}},
 		{key: "apiKeys", model: &ApiKey{}, where: "caller_key = ?", args: []interface{}{callerKey}},
+		{key: "mcpServerCallers", model: &McpServerCaller{}, where: "caller_key = ?", args: []interface{}{callerKey}},
 		{key: "callers", model: &Caller{}, where: "caller_key = ?", args: []interface{}{callerKey}},
 	}
 	for _, item := range deletes {

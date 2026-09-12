@@ -70,6 +70,13 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		reactGroup.POST("/plan_template/detail", react.GetPlanTemplateDetail)
 		reactGroup.POST("/plan_template/create", react.CreatePlanTemplate)
 		reactGroup.POST("/plan_template/update", react.UpdatePlanTemplate)
+		// MCP 连接管理（查看/更新/管理 MCP 连接，见 controllers/http/react/mcp_server.go）
+		reactGroup.POST("/mcp/list", react.ListMcpServers)
+		reactGroup.POST("/mcp/detail", react.GetMcpServerDetail)
+		reactGroup.POST("/mcp/create", react.CreateMcpServer)
+		reactGroup.POST("/mcp/update", react.UpdateMcpServer)
+		reactGroup.POST("/mcp/delete", react.DeleteMcpServer)
+		reactGroup.POST("/mcp/connect", react.ConnectMcpServer)
 		// python_exec 产物下载：走 IPS 登录态，图片/文件均需鉴权后经本接口读取（COS 私有桶不外暴露）。
 		reactGroup.GET("/artifact/:artifactId", react.GetArtifact)
 	}

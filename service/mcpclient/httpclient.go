@@ -16,28 +16,66 @@ import (
 //
 // 按设计文档决策「不做连接池」：每次操作（tools/list / tools/call）独立建一次
 // 逻辑会话（initialize → 操作），会话头 Mcp-Session-Id 只在该次操作内使用，
-// 操作结束即弃，无状态、无断线重连与失效检测负担。无鉴权：不发送任何凭证头。
+// 操作结束即弃，无状态、无断线重连与失效检测负担。
 //
-// 安全：每次建会话前都执行 validateEndpoint（SSRF 防护，拒绝环回/私网/保留地址）。
+// 安全：每次建会话前都执行端点校验（SSRF 防护，默认拒绝环回/私网/保留地址；
+// allowPrivate=true 仅限本机开发环境经 mcp.allow_private_endpoint 显式开启）。
+// 自定义 headers 会附加到每个请求（如 Authorization），但不会覆盖协议自身管理的头。
 type HTTPClient struct {
-	name     string
-	endpoint string
-	timeout  time.Duration
+	name        string
+	endpoint    string
+	timeout     time.Duration
+	headers     map[string]string
+	allowPrivate bool
 	// validated 是已通过校验的端点，仅限包内测试注入（绕过 SSRF 校验直连 httptest）；
-	// 生产构造路径 NewHTTPClient 不设置，withSession 始终走 validateEndpoint。
+	// 生产构造路径 NewHTTPClient 不设置，withSession 始终走 validateEndpointOpts。
 	validated *url.URL
 }
 
 // NewHTTPClient 按配置构造 HTTP 传输客户端并做一次端点校验（fail fast）。
 func NewHTTPClient(name, endpoint string, timeoutMs int) (*HTTPClient, error) {
-	if _, err := validateEndpoint(endpoint); err != nil {
+	return NewHTTPClientOpts(name, endpoint, timeoutMs, nil, false)
+}
+
+// NewHTTPClientOpts 构造带自定义请求头与端点策略的 HTTP 传输客户端。
+func NewHTTPClientOpts(name, endpoint string, timeoutMs int, headers map[string]string, allowPrivate bool) (*HTTPClient, error) {
+	if _, err := validateEndpointOpts(endpoint, allowPrivate); err != nil {
 		return nil, fmt.Errorf("mcp server %q: %w", name, err)
 	}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return &HTTPClient{name: name, endpoint: endpoint, timeout: timeout}, nil
+	return &HTTPClient{
+		name:         name,
+		endpoint:     endpoint,
+		timeout:      timeout,
+		headers:      normalizeHeaderNames(headers),
+		allowPrivate: allowPrivate,
+	}, nil
+}
+
+// normalizeHeaderNames 归一化请求头名称并剔除协议自身管理的头，防止会话被劫持。
+func normalizeHeaderNames(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	managed := map[string]bool{
+		"host": true, "content-type": true, "content-length": true,
+		"accept": true, "mcp-session-id": true,
+	}
+	normalized := make(map[string]string, len(headers))
+	for key, value := range headers {
+		lower := strings.ToLower(strings.TrimSpace(key))
+		if managed[lower] || lower == "" {
+			continue
+		}
+		normalized[lower] = value
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 // Name 返回服务器名。
@@ -45,7 +83,7 @@ func (c *HTTPClient) Name() string { return c.name }
 
 // Start 校验端点（HTTP 传输无子进程，无需拉起）。
 func (c *HTTPClient) Start() error {
-	_, err := validateEndpoint(c.endpoint)
+	_, err := validateEndpointOpts(c.endpoint, c.allowPrivate)
 	return err
 }
 
@@ -138,7 +176,7 @@ func (c *HTTPClient) withSession(op func(t *httpTransport) error) error {
 	u := c.validated
 	if u == nil {
 		var err error
-		u, err = validateEndpoint(c.endpoint)
+		u, err = validateEndpointOpts(c.endpoint, c.allowPrivate)
 		if err != nil {
 			return err
 		}
@@ -146,6 +184,7 @@ func (c *HTTPClient) withSession(op func(t *httpTransport) error) error {
 	transport := &httpTransport{
 		endpoint: u,
 		client:   &http.Client{Timeout: c.timeout},
+		headers:  c.headers,
 	}
 	if err := transport.initialize(); err != nil {
 		return fmt.Errorf("initialize: %w", err)
@@ -158,6 +197,7 @@ func (c *HTTPClient) withSession(op func(t *httpTransport) error) error {
 type httpTransport struct {
 	endpoint  *url.URL
 	client    *http.Client
+	headers   map[string]string
 	sessionID string
 	nextID    int
 }
@@ -252,6 +292,9 @@ func (t *httpTransport) post(req rpcHTTPRequest) (*http.Response, error) {
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+	for key, value := range t.headers {
+		httpReq.Header.Set(key, value)
+	}
 	if t.sessionID != "" {
 		httpReq.Header.Set("Mcp-Session-Id", t.sessionID)
 	}

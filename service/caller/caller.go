@@ -12,6 +12,10 @@ import (
 )
 
 func RegisterCaller(ctx *gin.Context, callerKey, name, description, platform string, createdBy string) (*model.Caller, error) {
+	// "default" 是默认作用域伪 caller 的保留字，不允许注册为真实 caller。
+	if model.IsReservedCallerKey(callerKey) {
+		return nil, components.ErrorCallerDuplicate.Sprintf(callerKey)
+	}
 	existing, err := model.GetCallerByKeyUnscoped(ctx, callerKey)
 	if err != nil {
 		return nil, err

@@ -136,12 +136,25 @@ func ListSkillsByRouteWithFallback(ctx *gin.Context, callerKey string, exactRout
 	return skills, nil
 }
 
-// FindSkillsByCallerAndRoutes 按 callerKey + 路由前缀匹配查询 skill
+// FindSkillsByCallerAndRoutes 按 callerKey + 路由前缀匹配查询 skill；
+// 同时并入「默认作用域」（caller_key=default）下命中的 skill，对全部 caller 生效。
 func FindSkillsByCallerAndRoutes(ctx *gin.Context, callerKey string, routePrefixes []string) ([]Skill, error) {
 	var skills []Skill
 	err := helpers.MysqlClientLLM.Model(&Skill{}).WithContext(ctx).
-		Where("caller_key = ? AND status = 1 AND route_values IN ?", callerKey, routePrefixes).
+		Where("caller_key IN ? AND status = 1 AND route_values IN ?", CallerScopeKeys(callerKey), routePrefixes).
 		Order("is_default ASC").
+		Find(&skills).Error
+	if err != nil {
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return skills, nil
+}
+
+// ListAllSkills 列出全部 caller 的 skill（管理控制台「全部」视图用）。
+func ListAllSkills(ctx *gin.Context) ([]Skill, error) {
+	var skills []Skill
+	err := helpers.MysqlClientLLM.Model(&Skill{}).WithContext(ctx).
+		Order("caller_key ASC, created_at DESC").
 		Find(&skills).Error
 	if err != nil {
 		return nil, components.ErrorDbSelect.Wrap(err)

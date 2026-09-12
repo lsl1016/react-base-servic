@@ -99,3 +99,48 @@ func TestNewHTTPClient_RejectsLocalEndpoint(t *testing.T) {
 		t.Fatal("private endpoint should be rejected at construction")
 	}
 }
+
+func TestValidateEndpointOpts_AllowPrivate(t *testing.T) {
+	// 默认（严格）仍拒绝环回/私网
+	if _, err := validateEndpointOpts("http://127.0.0.1:18080/api/mcp", false); err == nil {
+		t.Fatal("strict mode should reject loopback")
+	}
+	// allowPrivate=true 放行环回与私网（本机开发环境开关）
+	if _, err := validateEndpointOpts("http://127.0.0.1:18080/api/mcp", true); err != nil {
+		t.Fatalf("allowPrivate should accept loopback: %v", err)
+	}
+	if _, err := validateEndpointOpts("http://192.168.1.10:8080/mcp", true); err != nil {
+		t.Fatalf("allowPrivate should accept private: %v", err)
+	}
+	// 即便 allowPrivate 也仍拒绝非法 scheme 与空 host
+	if _, err := validateEndpointOpts("file:///etc/passwd", true); err == nil {
+		t.Fatal("allowPrivate should still reject non-http scheme")
+	}
+	if _, err := validateEndpointOpts("http://", true); err == nil {
+		t.Fatal("allowPrivate should still reject missing host")
+	}
+}
+
+func TestNewHTTPClientOpts_HeadersNormalization(t *testing.T) {
+	client, err := NewHTTPClientOpts("demo", "http://127.0.0.1:18090/api/mcp", 1000, map[string]string{
+		"Authorization":  "Bearer k:s",
+		"HOST":           "evil.example.com",
+		"Content-Type":   "text/plain",
+		"Mcp-Session-Id": "hijack",
+		"X-Custom":       "v",
+	}, true)
+	if err != nil {
+		t.Fatalf("construction failed: %v", err)
+	}
+	if _, ok := client.headers["authorization"]; !ok || client.headers["authorization"] != "Bearer k:s" {
+		t.Fatalf("authorization header should be kept lowercased: %v", client.headers)
+	}
+	if _, ok := client.headers["x-custom"]; !ok {
+		t.Fatalf("custom header should be kept: %v", client.headers)
+	}
+	for _, managed := range []string{"host", "content-type", "mcp-session-id"} {
+		if _, ok := client.headers[managed]; ok {
+			t.Fatalf("managed header %s must be stripped", managed)
+		}
+	}
+}

@@ -61,6 +61,8 @@ mcp:
       kind: repo
       env:
         REPO_ROOT: 'C:/Users/keke/Desktop/xm/react-base-service'
+  # 本机开发环境放行环回/私网 MCP 端点（如 127.0.0.1 演示 MCP 服务）；生产环境必须删除此开关
+  allow_private_endpoint: true
     # - name: remote
     #   kind: http_sdk            # 或 http（手写版）
     #   endpoint: 'https://mcp.example.com/mcp'

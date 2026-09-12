@@ -41,6 +41,20 @@ func (e Error) Wrap(err error) error {
 	return errors.WithStack(Error{ErrNo: e.ErrNo, ErrMsg: fmt.Sprintf("%s: %v", e.ErrMsg, err)})
 }
 
+// Equal 判断 err 是否为本错误码（解包 Sprintf/Wrap 包装链后按 ErrNo 比对）。
+func (e Error) Equal(err error) bool {
+	if err == nil {
+		return false
+	}
+	if cause, ok := errors.Cause(err).(Error); ok {
+		return cause.ErrNo == e.ErrNo
+	}
+	if cause, ok := errors.Cause(err).(*Error); ok {
+		return cause.ErrNo == e.ErrNo
+	}
+	return false
+}
+
 // PprofConfig pprof 开关配置。
 type PprofConfig struct {
 	Enable bool `yaml:"enable"`

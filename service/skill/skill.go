@@ -16,12 +16,15 @@ import (
 )
 
 func CreateSkill(ctx *gin.Context, req *params.CreateSkillReq, createdBy string) (*model.Skill, error) {
-	caller, err := model.GetActiveCallerByKey(ctx, req.CallerKey)
-	if err != nil {
-		return nil, err
-	}
-	if caller == nil {
-		return nil, components.ErrorCallerNotFound.Sprintf(req.CallerKey)
+	// caller_key=default 是默认作用域伪 caller（全 caller 可用），不要求真实 caller 存在。
+	if !model.IsReservedCallerKey(req.CallerKey) {
+		caller, err := model.GetActiveCallerByKey(ctx, req.CallerKey)
+		if err != nil {
+			return nil, err
+		}
+		if caller == nil {
+			return nil, components.ErrorCallerNotFound.Sprintf(req.CallerKey)
+		}
 	}
 
 	isDefault, err := resolveCreateSkillIsDefault(req.IsDefault)
@@ -182,6 +185,10 @@ func GetDetail(ctx *gin.Context, skillID string) (*model.Skill, error) {
 }
 
 func ListByCallerAndRoute(ctx *gin.Context, callerKey string, routeValues []string) ([]model.Skill, error) {
+	// callerKey 为空：管理控制台「全部」视图，跨 caller 列出，忽略路由过滤。
+	if strings.TrimSpace(callerKey) == "" {
+		return model.ListAllSkills(ctx)
+	}
 	exact, parents := route.SplitRouteExactAndParents(routeValues)
 	return model.ListSkillsByRouteWithFallback(ctx, callerKey, exact, parents)
 }

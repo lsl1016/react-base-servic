@@ -186,8 +186,9 @@ type DeleteSkillReq struct {
 }
 
 // ListSkillsReq Skill 列表请求
+// ListSkillsReq Skill 列表请求；callerKey 为空表示跨 caller 列出全部（管理控制台「全部」视图）。
 type ListSkillsReq struct {
-	CallerKey   string   `json:"callerKey" binding:"required"`
+	CallerKey   string   `json:"callerKey"`
 	RouteValues []string `json:"routeValues" binding:"required"`
 }
 
@@ -243,9 +244,9 @@ type DeleteToolReq struct {
 	ToolID string `json:"toolId" binding:"required"`
 }
 
-// ListToolsReq Tool 列表请求
+// ListToolsReq Tool 列表请求；callerKey 为空表示跨 caller 列出全部（管理控制台「全部」视图）。
 type ListToolsReq struct {
-	CallerKey   string   `json:"callerKey" binding:"required"`
+	CallerKey   string   `json:"callerKey"`
 	RouteValues []string `json:"routeValues" binding:"required"`
 }
 
@@ -343,9 +344,9 @@ type DeleteSystemPromptReq struct {
 	ID uint `json:"id" binding:"required"`
 }
 
-// ListSystemPromptsReq 系统提示词列表请求
+// ListSystemPromptsReq 系统提示词列表请求；callerKey 为空表示跨 caller 列出全部（管理控制台「全部」视图）。
 type ListSystemPromptsReq struct {
-	CallerKey   string   `json:"callerKey" binding:"required"`
+	CallerKey   string   `json:"callerKey"`
 	RouteValues []string `json:"routeValues" binding:"required"`
 }
 
