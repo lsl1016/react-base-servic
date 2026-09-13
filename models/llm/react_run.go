@@ -144,6 +144,42 @@ func ExpireReactRunsByRunIDs(ctx context.Context, runIDs []string) error {
 	return nil
 }
 
+// staleActiveReactRunCondition 是陈旧活跃 run 清理的过滤条件，独立成函数供 DryRun 单测断言。
+func staleActiveReactRunCondition(cutoff time.Time) (string, []any) {
+	return "state IN ? AND updated_at < ?", []any{
+		[]string{
+			ReactRunStateRunning,
+			ReactRunStateWaitingClientMessage,
+			ReactRunStateCancelling,
+		},
+		cutoff,
+	}
+}
+
+// ExpireStaleActiveReactRuns 把超过 olderThan 未更新的活跃 run（running / waiting_client_message /
+// cancelling）批量置为 expired，返回受影响行数。
+//
+// 服务重启后取消注册表与等待中的 goroutine 已随进程丢失，DB 中残留的活跃 run 会让
+// HasActiveReactRun 永远命中，该会话的新消息被「run is active」静默拒绝；启动时调用一次兜底。
+// updated_at 下限保护滚动重启场景：重启后仍在推进（updated_at 新鲜）的 run 不会被误伤。
+func ExpireStaleActiveReactRuns(ctx context.Context, olderThan time.Duration) (int64, error) {
+	return ExpireStaleActiveReactRunsWithDB(ctx, helpers.MysqlClientLLM, olderThan)
+}
+
+func ExpireStaleActiveReactRunsWithDB(ctx context.Context, db *gorm.DB, olderThan time.Duration) (int64, error) {
+	condition, args := staleActiveReactRunCondition(time.Now().Add(-olderThan))
+	tx := db.Model(&ReactRun{}).WithContext(ctx).
+		Where(condition, args...).
+		Updates(map[string]any{
+			"state":         ReactRunStateExpired,
+			"error_message": "expired by stale active-run cleanup (service restart)",
+		})
+	if tx.Error != nil {
+		return 0, components.ErrorDbUpdate.Wrap(tx.Error)
+	}
+	return tx.RowsAffected, nil
+}
+
 func HasActiveReactRun(ctx *gin.Context, sessionID string) (bool, error) {
 	return HasActiveReactRunWithDB(ctx, helpers.MysqlClientLLM, sessionID)
 }

@@ -6,14 +6,19 @@
 package main
 
 import (
+	"context"
+	"time"
+
 	"react-base-service/components"
 	"react-base-service/conf"
 	"react-base-service/helpers"
+	"react-base-service/models/llm"
 	"react-base-service/router"
 
 	"react-base-service/golib"
 	"react-base-service/golib/base"
 	"react-base-service/golib/server/http"
+	"react-base-service/golib/zlog"
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 )
@@ -53,6 +58,13 @@ func httpServer(engine *gin.Engine) {
 	// web 服务所需资源初始化
 	helpers.InitResource(engine)
 	defer helpers.Release()
+
+	// 清理上一进程遗留的陈旧活跃 run：取消注册表随进程丢失，残留 run 会永久阻塞对应会话的新消息
+	if n, err := model.ExpireStaleActiveReactRuns(context.Background(), 30*time.Minute); err != nil {
+		zlog.Errorf(nil, "[startup] 陈旧活跃 run 清理失败: err=%v", err)
+	} else if n > 0 {
+		zlog.Infof(nil, "[startup] 已清理 %d 个陈旧活跃 run（state→expired，超过 30 分钟未更新）", n)
+	}
 
 	// 初始化http服务路由
 	router.Http(engine)
