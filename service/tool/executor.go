@@ -36,6 +36,9 @@ type ToolConfig struct {
 	AsyncHint string `json:"asyncHint,omitempty"`
 	// AsyncTask 声明由后端调度系统 Provider 自动同步状态；为空时保留旧的模型提醒机制。
 	AsyncTask *AsyncTaskConfig `json:"asyncTask,omitempty"`
+	// RiskPatterns 是 confirm_risky 模式的自定义风险正则（大小写不敏感），
+	// 匹配目标为工具名 + 序列化入参；为空时使用内置默认风险表（drop/alter/kill 等）。
+	RiskPatterns []string `json:"riskPatterns,omitempty"`
 }
 
 // AsyncTaskConfig 描述异步 Tool 所属的调度系统，不暴露 MQ、接口或状态查询 Tool 等实现细节。

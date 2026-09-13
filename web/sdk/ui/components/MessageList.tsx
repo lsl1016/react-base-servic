@@ -49,6 +49,8 @@ export interface MessageListProps {
   resolveTool?: (toolName: string, frontendHint?: string) => ClientTool | undefined;
   /** 提交 ask_question 的用户答案（tool_use_answer 回填） */
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
+
   /** 当前活跃的等待作答 ask_question，消息列表中不再重复渲染 */
   activeAskQuestion?: ToolCallState;
   /** 当前会话 Plan 的实时公开状态和步骤详情。 */
@@ -308,6 +310,7 @@ export function MessageList(props: MessageListProps) {
                   onPlanConfirm={props.onPlanConfirm}
                   resolveTool={props.resolveTool}
                   onAskQuestionSubmit={props.onAskQuestionSubmit}
+                  onToolConfirmSubmit={props.onToolConfirmSubmit}
                   activeAskQuestion={props.activeAskQuestion}
                   plans={props.plans}
                   latestPlanToolUseIdByExecution={latestPlanToolUseIdByExecution()}

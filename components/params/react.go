@@ -140,6 +140,18 @@ type ReactClientToolUseEndPayload struct {
 	ToolOutputs []ReactClientToolOutput `json:"toolOutputs"`
 }
 
+// ReactToolConfirmRequestPayload 是危险操作确认请求（P2-3）：服务端工具执行前
+// permission_mode 命中时下发，前端展示确认卡片后以 tool_confirm_answer 上行作答。
+type ReactToolConfirmRequestPayload struct {
+	ToolUseID string          `json:"toolUseId"`
+	ToolName  string          `json:"toolName"`
+	ToolInput json.RawMessage `json:"toolInput,omitempty" swaggertype:"object"`
+	// Mode 是生效的确认模式：confirm / confirm_risky。
+	Mode string `json:"mode"`
+	// Reason 是触发原因（confirm_risky 时含命中的风险正则）。
+	Reason string `json:"reason,omitempty"`
+}
+
 type ReactCompactStartPayload struct {
 	MessageCount  int `json:"messageCount"`
 	EstimatedSize int `json:"estimatedSize"`

@@ -35,6 +35,7 @@ export interface WorkBlockProps {
   liveTimer?: boolean;
   resolveTool?: (toolName: string, frontendHint?: string) => ClientTool | undefined;
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
   activeAskQuestion?: ToolCallState;
 }
 
@@ -53,6 +54,7 @@ function WorkTools(props: {
   toolUseIds?: readonly string[];
   resolveTool?: (toolName: string, frontendHint?: string) => ClientTool | undefined;
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
   activeAskQuestion?: ToolCallState;
 }) {
   const toolCalls = createMemo(() => getWorkPartToolCalls(props.step, props.toolUseIds));

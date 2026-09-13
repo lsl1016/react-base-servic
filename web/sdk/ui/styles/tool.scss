@@ -82,6 +82,44 @@
 }
 
 
+.agent-ui-tool-confirm {
+  padding: 8px 10px;
+  margin: 6px 0;
+  border-radius: 6px;
+  border: 1px solid rgba(217, 119, 6, 0.45);
+  background: rgba(217, 119, 6, 0.08);
+}
+
+.agent-ui-tool-confirm-reason {
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: $agent-ui-warning;
+}
+
+.agent-ui-tool-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-ui-tool-confirm-actions button {
+  padding: 3px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  background: transparent;
+}
+
+.agent-ui-tool-confirm-approve {
+  color: $agent-ui-success;
+  border-color: rgba(34, 154, 22, 0.55) !important;
+}
+
+.agent-ui-tool-confirm-reject {
+  color: $agent-ui-danger;
+  border-color: rgba(214, 69, 65, 0.55) !important;
+}
+
 .agent-ui-tool-status {
   color: $agent-ui-message-meta;
   @include agent-ui-flex-center;

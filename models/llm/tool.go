@@ -14,20 +14,23 @@ import (
 )
 
 type Tool struct {
-	ID          uint                  `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
-	ToolID      string                `json:"toolId" gorm:"column:tool_id;not null"`
-	Name        string                `json:"name" gorm:"column:name;not null"`
-	Description string                `json:"description" gorm:"column:description"`
-	ToolType    string                `json:"toolType" gorm:"column:tool_type;not null"`
-	CallerKey   string                `json:"callerKey" gorm:"column:caller_key;not null"`
-	RouteValues string                `json:"routeValues" gorm:"column:route_values"`
-	Config      string                `json:"config" gorm:"column:config"`
-	Status      int                   `json:"status" gorm:"column:status;not null;default:1"`
-	CreatedBy   string                `json:"createdBy" gorm:"column:created_by;not null;default:''"`
-	UpdatedBy   string                `json:"updatedBy" gorm:"column:updated_by;not null;default:''"`
-	CreatedAt   time.Time             `json:"createdAt" gorm:"column:created_at"`
-	UpdatedAt   time.Time             `json:"updatedAt" gorm:"column:updated_at"`
-	DeletedAt   soft_delete.DeletedAt `json:"deletedAt" gorm:"column:deleted_at;not null;default:0"`
+	ID          uint   `json:"id" gorm:"column:id;primaryKey;autoIncrement"`
+	ToolID      string `json:"toolId" gorm:"column:tool_id;not null"`
+	Name        string `json:"name" gorm:"column:name;not null"`
+	Description string `json:"description" gorm:"column:description"`
+	ToolType    string `json:"toolType" gorm:"column:tool_type;not null"`
+	CallerKey   string `json:"callerKey" gorm:"column:caller_key;not null"`
+	RouteValues string `json:"routeValues" gorm:"column:route_values"`
+	Config      string `json:"config" gorm:"column:config"`
+	// PermissionMode 是工具级危险操作确认模式：auto=自动执行（默认）、confirm=每次人工确认、
+	// confirm_risky=入参/工具名命中风险正则才确认（P2-3）。
+	PermissionMode string                `json:"permissionMode" gorm:"column:permission_mode;not null;default:'auto'"`
+	Status         int                   `json:"status" gorm:"column:status;not null;default:1"`
+	CreatedBy      string                `json:"createdBy" gorm:"column:created_by;not null;default:''"`
+	UpdatedBy      string                `json:"updatedBy" gorm:"column:updated_by;not null;default:''"`
+	CreatedAt      time.Time             `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt      time.Time             `json:"updatedAt" gorm:"column:updated_at"`
+	DeletedAt      soft_delete.DeletedAt `json:"deletedAt" gorm:"column:deleted_at;not null;default:0"`
 }
 
 func (t *Tool) TableName() string {

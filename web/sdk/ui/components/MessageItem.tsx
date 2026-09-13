@@ -27,6 +27,8 @@ export interface MessageItemProps {
   onNextButtonClick?: (action: NextButtonAction) => void;
   /** 提交 ask_question 的用户答案（tool_use_answer 回填） */
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
+
   /** 当前活跃的等待作答 ask_question，消息列表中不再重复渲染 */
   activeAskQuestion?: ToolCallState;
 }
@@ -112,6 +114,7 @@ export function MessageItem(props: MessageItemProps) {
                     toolCall={toolCall}
                     resolveTool={props.resolveTool}
                     onAskQuestionSubmit={props.onAskQuestionSubmit}
+                    onToolConfirmSubmit={props.onToolConfirmSubmit}
                     activeAskQuestion={props.activeAskQuestion}
                   />
                 )}

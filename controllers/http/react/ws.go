@@ -206,7 +206,7 @@ func handleWSMessage(ctx *gin.Context, connCtx context.Context, write reactServi
 			return runMsgCh, runDone
 		}
 		forwardWSRunMessage(runMsgCh, msg)
-	case reactService.EventClientToolUseEnd, reactService.EventToolUseAnswer:
+	case reactService.EventClientToolUseEnd, reactService.EventToolUseAnswer, reactService.EventToolConfirmAnswer:
 		if runMsgCh == nil {
 			_ = write(params.ReactEvent{Type: reactService.EventError, RunID: msg.RunID, SessionID: msg.SessionID, Payload: params.ReactErrorPayload{ErrNo: components.ErrorParamInvalid.ErrNo, ErrMsg: "no active react run"}})
 			return runMsgCh, runDone

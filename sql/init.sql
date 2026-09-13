@@ -57,8 +57,9 @@ CREATE TABLE IF NOT EXISTS `tblLlmTool` (
     `tool_type`    VARCHAR(32)  NOT NULL COMMENT '工具类型: http/client',
     `caller_key`   VARCHAR(32)  NOT NULL COMMENT '所属caller',
     `route_values` TEXT         NULL COMMENT '路由路径(JSON数组)',
-    `config`       TEXT         NULL COMMENT '工具配置(JSON: url/method/headers/inputSchema/outputSchema/async/asyncHint/frontendHint等)',
-    `status`       TINYINT      NOT NULL DEFAULT 1 COMMENT '状态: 0=禁用 1=启用',
+    `config`       TEXT         NULL COMMENT '工具配置(JSON: url/method/headers/inputSchema/outputSchema/async/asyncHint/frontendHint/riskPatterns等)',
+    `permission_mode` VARCHAR(16) NOT NULL DEFAULT 'auto' COMMENT '权限模式: auto=自动执行/confirm=每次人工确认/confirm_risky=风险正则命中才确认',
+    `status`        TINYINT      NOT NULL DEFAULT 1 COMMENT '状态: 0=禁用 1=启用',
     `created_by`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '创建人',
     `updated_by`   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '更新人',
     `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS `tblLlmTool` (
     INDEX `idx_caller_route` (`caller_key`, `route_values`(255)),
     INDEX `idx_name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM工具表';
+
+-- 存量环境增量：ALTER TABLE `tblLlmTool` ADD COLUMN `permission_mode` VARCHAR(16) NOT NULL DEFAULT 'auto' COMMENT '权限模式: auto/confirm/confirm_risky' AFTER `config`;
 
 -- 工具用户访问策略表（白名单）
 CREATE TABLE IF NOT EXISTS `tblLlmToolUserPolicy` (

@@ -84,6 +84,9 @@ type reactEngineState struct {
 	// agentPath 是当前 run 的多 Agent 事件归属路径（外层 run 为空）；depth 是委派嵌套深度。
 	agentPath string
 	depth     int
+	// agentPermissionMode 是当前 run 的 agent 级工具确认收紧（来自 tblLlmAgent.permission_mode，
+	// 外层 run 为空=不收紧）：与工具级 permission_mode 取更严者（P2-3）。
+	agentPermissionMode string
 	// delegatedInput/OutputTokens 是委派子 run 消耗的内存镜像（DB 为权威口径），
 	// 并行委派并发累加用原子操作，done 事件透出给前端。
 	delegatedInputTokens  atomic.Int64
@@ -142,6 +145,7 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 		agentPath:              req.agentPath,
 		depth:                  req.depth,
 		clientHub:              req.clientHub,
+		agentPermissionMode:    req.agentPermissionMode,
 	}
 	// 恢复上一个 run 已加载且定义未变化的 Business Tool，避免模型按历史上下文直接 execute_tool 时空转报错。
 	if err := state.restoreActiveToolsFromPreviousRun(); err != nil {
@@ -683,6 +687,16 @@ func (s *reactEngineState) executeServerTool(call llm.ToolCall, tool model.Tool,
 	var input interface{}
 	if len(call.Input) > 0 {
 		_ = json.Unmarshal(call.Input, &input)
+	}
+	// 危险操作确认门（P2-3）：permission_mode 命中时先等人工允许；拒绝按 rejected 工具结果回填。
+	approved, confirmErr := s.confirmServerToolIfNeeded(call, tool, json.RawMessage(call.Input), step, start)
+	if confirmErr != nil {
+		return llm.ToolResultContent{}, confirmErr
+	}
+	if !approved {
+		content := renderToolRejectedResult(tool, "")
+		_ = s.emitter.EmitStep(step, EventToolUseEnd, params.ReactToolUseEndPayload{ToolUseID: call.ID, Content: content, IsError: true, ExecutedBy: executedByServer, Status: toolExecutionStatusRejected, DurationMs: time.Since(start).Milliseconds()})
+		return llm.ToolResultContent{ToolUseID: call.ID, Content: content, IsError: true}, nil
 	}
 	// mcp 类型工具：转发给 MCP 客户端子进程执行（无鉴权，本机受信环境）。
 	if cfg, cfgErr := toolService.ParseToolConfig(tool.Config); cfgErr == nil && strings.TrimSpace(cfg.MCPServer) != "" {

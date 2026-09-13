@@ -316,6 +316,17 @@ export function AgentPanel(props: AgentPanelProps) {
     });
     props.client.sendAskQuestionAnswer(toolUseId, content);
   };
+
+  const handleToolConfirmSubmit = (toolUseId: string, approved: boolean) => {
+    emitUIEvent({
+      type: 'tool_confirm_submit',
+      sessionId: store.state.sessionId,
+      runId: store.state.currentRunId ?? '',
+      toolUseId,
+      approved,
+    });
+    props.client.sendToolConfirmAnswer(toolUseId, approved);
+  };
   const autocompleteItems = createMemo<AgentInputPart[][]>(() => {
     const seen = new Set<string>();
     const items: AgentInputPart[][] = [];
@@ -660,6 +671,7 @@ export function AgentPanel(props: AgentPanelProps) {
             onPlanConfirm={props.readOnly ? undefined : (planId) => props.client.confirmPlan(planId)}
             resolveTool={(toolName, frontendHint) => props.client.getRegisteredTool(toolName, frontendHint)}
             onAskQuestionSubmit={props.readOnly ? undefined : handleAskQuestionSubmit}
+            onToolConfirmSubmit={props.readOnly ? undefined : handleToolConfirmSubmit}
             activeAskQuestion={props.readOnly ? undefined : activeAskQuestion()}
             plans={store.state.plans}
             onPlanResume={props.readOnly ? undefined : (planExecutionId, waitRequestId, response) => {
@@ -718,6 +730,7 @@ export function AgentPanel(props: AgentPanelProps) {
           toolCall={activeInteraction()?.toolCall}
           renderer={activeInteraction()?.renderer}
           onAskQuestionSubmit={handleAskQuestionSubmit}
+          onToolConfirmSubmit={handleToolConfirmSubmit}
         />
       </Show>
 

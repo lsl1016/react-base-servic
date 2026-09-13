@@ -68,6 +68,13 @@ export type AgentUIEvent =
       feedbackType: 'problem';
     }
   | {
+      type: 'tool_confirm_submit';
+      sessionId: string | null;
+      runId: string;
+      toolUseId: string;
+      approved: boolean;
+    }
+  | {
       type: 'ask_question_submit';
       sessionId: string | null;
       runId: string;

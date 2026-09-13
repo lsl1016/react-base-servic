@@ -224,6 +224,9 @@ func (s *reactEngineState) buildSubAgentRuntimeRequest(agent model.Agent, task, 
 	base.agentPath = delegateAgentPath(s.agentPath, agent.AgentKey)
 	base.depth = s.depth + 1
 	base.clientHub = s.req.clientHub // 子 run 的交互等待经同一上行消息分发器认领
+	// agent 级工具确认收紧（P2-3）：inherit/空 = 不收紧，confirm/confirm_risky 作为子 run
+	// 内全部服务端工具的权限下限（与工具级取更严者）。
+	base.agentPermissionMode = strings.TrimSpace(agent.PermissionMode)
 
 	subRunID := generateRunID()
 	base.modelUserMessageRef = reactMessageRef{RunID: subRunID, MessageID: generateMessageID(), Seq: 1}

@@ -70,6 +70,26 @@ func NormalizeToolType(toolType string) string {
 	return strings.ToLower(strings.TrimSpace(toolType))
 }
 
+// 工具级危险操作确认模式（P2-3）：auto=自动执行（默认）、confirm=每次人工确认、
+// confirm_risky=入参/工具名命中风险正则才确认。
+const (
+	ToolPermissionAuto         = "auto"
+	ToolPermissionConfirm      = "confirm"
+	ToolPermissionConfirmRisky = "confirm_risky"
+)
+
+// NormalizePermissionMode 校验并归一化工具级权限模式；空值按 auto。
+func NormalizePermissionMode(mode string) (string, error) {
+	switch strings.TrimSpace(mode) {
+	case "":
+		return ToolPermissionAuto, nil
+	case ToolPermissionAuto, ToolPermissionConfirm, ToolPermissionConfirmRisky:
+		return strings.TrimSpace(mode), nil
+	default:
+		return "", fmt.Errorf("permissionMode 仅支持 auto/confirm/confirm_risky")
+	}
+}
+
 func IsAllowedToolType(toolType string) bool {
 	switch NormalizeToolType(toolType) {
 	case ToolTypeHTTP, ToolTypeClient, ToolTypeMCP:
@@ -156,6 +176,10 @@ func RegisterTool(ctx *gin.Context, req *params.RegisterToolReq, createdBy strin
 		return nil, components.ErrorToolRegisterFailed.Sprintf(err.Error())
 	}
 	normalizedToolType := NormalizeToolType(req.ToolType)
+	permissionMode, err := NormalizePermissionMode(req.PermissionMode)
+	if err != nil {
+		return nil, components.ErrorToolRegisterFailed.Sprintf(err.Error())
+	}
 
 	exists, err := model.ExistToolByCallerAndName(ctx, req.CallerKey, name)
 	if err != nil {
@@ -173,16 +197,17 @@ func RegisterTool(ctx *gin.Context, req *params.RegisterToolReq, createdBy strin
 	routeValues, _ := json.Marshal(rv)
 
 	t := &model.Tool{
-		ToolID:      toolID,
-		Name:        name,
-		Description: description,
-		ToolType:    normalizedToolType,
-		CallerKey:   req.CallerKey,
-		RouteValues: string(routeValues),
-		Config:      string(req.Config),
-		Status:      1,
-		CreatedBy:   createdBy,
-		UpdatedBy:   createdBy,
+		ToolID:         toolID,
+		Name:           name,
+		Description:    description,
+		ToolType:       normalizedToolType,
+		CallerKey:      req.CallerKey,
+		RouteValues:    string(routeValues),
+		Config:         string(req.Config),
+		PermissionMode: permissionMode,
+		Status:         1,
+		CreatedBy:      createdBy,
+		UpdatedBy:      createdBy,
 	}
 
 	if err := model.CreateTool(ctx, t); err != nil {
@@ -265,6 +290,13 @@ func UpdateTool(ctx *gin.Context, req *params.UpdateToolReq, updatedBy string) e
 	if len(req.Config) > 0 {
 		updates["config"] = string(req.Config)
 	}
+	if req.PermissionMode != nil {
+		permissionMode, err := NormalizePermissionMode(*req.PermissionMode)
+		if err != nil {
+			return components.ErrorToolRegisterFailed.Sprintf(err.Error())
+		}
+		updates["permission_mode"] = permissionMode
+	}
 	if req.Status != nil {
 		updates["status"] = *req.Status
 	}
@@ -314,18 +346,23 @@ func ListByCallerAndRoute(ctx *gin.Context, callerKey string, routeValues []stri
 func ToToolResp(t *model.Tool) params.ToolResp {
 	var routeValues []string
 	_ = json.Unmarshal([]byte(t.RouteValues), &routeValues)
+	permissionMode := t.PermissionMode
+	if strings.TrimSpace(permissionMode) == "" {
+		permissionMode = ToolPermissionAuto
+	}
 	return params.ToolResp{
-		ToolID:      t.ToolID,
-		Name:        t.Name,
-		Description: t.Description,
-		ToolType:    t.ToolType,
-		CallerKey:   t.CallerKey,
-		RouteValues: routeValues,
-		Config:      json.RawMessage(t.Config),
-		Status:      t.Status,
-		CreatedAt:   t.CreatedAt.Format("2006-01-02 15:04:05"),
-		CreatedBy:   t.CreatedBy,
-		UpdatedAt:   t.UpdatedAt.Format("2006-01-02 15:04:05"),
-		UpdatedBy:   t.UpdatedBy,
+		ToolID:         t.ToolID,
+		Name:           t.Name,
+		Description:    t.Description,
+		ToolType:       t.ToolType,
+		CallerKey:      t.CallerKey,
+		RouteValues:    routeValues,
+		Config:         json.RawMessage(t.Config),
+		PermissionMode: permissionMode,
+		Status:         t.Status,
+		CreatedAt:      t.CreatedAt.Format("2006-01-02 15:04:05"),
+		CreatedBy:      t.CreatedBy,
+		UpdatedAt:      t.UpdatedAt.Format("2006-01-02 15:04:05"),
+		UpdatedBy:      t.UpdatedBy,
 	}
 }

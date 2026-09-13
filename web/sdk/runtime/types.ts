@@ -94,6 +94,8 @@ export interface ToolCallState {
   stepAttemptId?: string;
   /** 多 Agent 归属路径（子 Agent 产出该工具调用时形如 main/ops-agent）；外层 run 为空 */
   agentPath?: string;
+  /** 危险操作确认待答说明（P2-3）：tool_confirm_request 到达时写入，卡片渲染允许/拒绝按钮 */
+  confirmReason?: string;
 }
 
 /**

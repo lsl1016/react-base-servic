@@ -36,6 +36,7 @@ import type {
     CancelledPayload,
     ClientToolUseEndPayload,
     ClientToolUseStartPayload,
+  ReactToolConfirmRequestPayload,
     CompactEndPayload,
     ContentDeltaPayload,
     ContentEndPayload,
@@ -939,6 +940,23 @@ export class EventReducer {
         break;
       }
 
+      case 'tool_confirm_request': {
+        const p = event.payload as unknown as ReactToolConfirmRequestPayload;
+        const loc = this.toolCallIndex.get(p.toolUseId);
+        if (loc) {
+          const step = this.state.steps[loc.stepIndex];
+          if (step) {
+            const tc = step.toolCalls[loc.toolIndex];
+            if (tc) {
+              tc.status = 'waiting';
+              tc.confirmReason = p.reason || p.mode;
+            }
+          }
+        }
+        this.state.status = 'waiting_client_tool';
+        break;
+      }
+
       case 'tool_use_end': {
         const p = event.payload as unknown as ToolUseEndPayload;
         const loc = this.toolCallIndex.get(p.toolUseId);
@@ -950,6 +968,7 @@ export class EventReducer {
             tc.result = p.content;
             tc.isError = p.isError;
             tc.durationMs = p.durationMs;
+            tc.confirmReason = undefined;
             if (isPlanExecutionToolName(tc.toolName)) {
               const view = parsePlanPublicView(p.content);
               if (view) {

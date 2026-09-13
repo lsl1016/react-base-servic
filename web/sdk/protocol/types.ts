@@ -17,7 +17,7 @@
 // ─── 客户端 → 服务端 ───────────────────────────────────────────────
 
 /** 客户端可发送的消息类型 */
-export type WsMessageType = 'run' | 'cancel' | 'client_tool_use_end' | 'tool_use_answer';
+export type WsMessageType = 'run' | 'cancel' | 'client_tool_use_end' | 'tool_use_answer' | 'tool_confirm_answer';
 
 /**
  * WebSocket 消息帧
@@ -167,6 +167,16 @@ export interface AskQuestionAnswerItem {
   freeText: string;
 }
 
+/** tool_confirm_answer 消息的 payload（P2-3 危险操作确认作答） */
+export interface ToolConfirmAnswerPayload {
+  /** 对应 tool_confirm_request 事件中的 toolUseId */
+  toolUseId: string;
+  /** true=允许执行，false=拒绝 */
+  approved: boolean;
+  /** 拒绝/允许原因（可选，回填给模型与审计日志） */
+  reason?: string;
+}
+
 /**
  * ask_question 工具对 tool_use_answer.content 的内容结构
  *
@@ -313,6 +323,7 @@ export type EventType =
   | 'content_end'
   | 'tool_use_start'
   | 'tool_use_end'
+  | 'tool_confirm_request'
   | 'client_tool_use_start'
   | 'client_tool_use_end'
   | 'compact_start'
@@ -442,6 +453,17 @@ export interface ToolUseStartPayload {
  * 服务端通知客户端需要执行一个前端工具。
  * 客户端收到后应在本地执行工具逻辑，然后通过 client_tool_use_end 消息回填结果。
  */
+/** tool_confirm_request 事件 payload（P2-3）：服务端工具执行前等待人工确认 */
+export interface ReactToolConfirmRequestPayload {
+  toolUseId: string;
+  toolName: string;
+  toolInput?: Record<string, unknown>;
+  /** 生效模式：confirm / confirm_risky */
+  mode: string;
+  /** 触发原因（confirm_risky 时含命中的风险正则） */
+  reason?: string;
+}
+
 export interface ClientToolUseStartPayload {
   /** 工具调用唯一标识，回填时需原样带回 */
   toolUseId: string;

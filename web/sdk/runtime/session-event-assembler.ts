@@ -117,6 +117,7 @@ export class SessionEventAssembler {
         return [cloneEvent(event)];
 
       case 'tool_use_start':
+      case 'tool_confirm_request':
       case 'client_tool_use_start':
       case 'tool_use_end':
       case 'client_tool_use_end':

@@ -77,7 +77,10 @@ type runtimeRequest struct {
 	depth int
 	// clientHub 是外层 run 级的前端上行消息分发器：并行委派的多个等待者按 toolUseId
 	// 各自认领消息（见 client_hub.go）；外层 run 创建，子 run 继承同一实例。
-	clientHub              *clientMessageHub
+	clientHub *clientMessageHub
+	// agentPermissionMode 是子 run 的 agent 级工具确认收紧（tblLlmAgent.permission_mode，
+	// inherit/空 = 不收紧）；外层 run 为空。
+	agentPermissionMode    string
 	routeValuesJSON        string
 	historyMessages        []llm.ChatMessage
 	historyMessageRefs     [][]reactMessageRef

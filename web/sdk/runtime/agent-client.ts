@@ -463,6 +463,23 @@ export class AgentClient {
   }
 
   /**
+   * 回填危险操作确认（P2-3）的允许/拒绝。
+   *
+   * 服务端在 tool_confirm_request 后阻塞等待；宿主 UI 用户点击允许/拒绝后调用本方法继续。
+   */
+  sendToolConfirmAnswer(toolUseId: string, approved: boolean, reason?: string): void {
+    if (!this.isRunInProgress()) return;
+    const runId = this.reducer.getState().currentRunId;
+    if (!runId) return;
+
+    this.wsClient.send({
+      type: 'tool_confirm_answer',
+      runId,
+      payload: { toolUseId, approved, reason } as unknown as Record<string, unknown>,
+    });
+  }
+
+  /**
    * 回填 ask_question 的用户答案。
    *
    * 服务端在 tool_use_start（toolName='ask_question'，status='waiting'）后阻塞等待，

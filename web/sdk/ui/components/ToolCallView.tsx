@@ -14,6 +14,8 @@ export interface ToolCallViewProps {
   toolCall: ToolCallState;
   resolveTool?: (toolName: string, frontendHint?: string) => ClientTool | undefined;
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
+
   activeAskQuestion?: ToolCallState;
 }
 
@@ -69,7 +71,7 @@ export function ToolCallView(props: ToolCallViewProps) {
     return <ToolExplore toolCall={props.toolCall} options={builtinExploreOptions} />;
   }
 
-  return <ToolCallCard toolCall={props.toolCall} />;
+  return <ToolCallCard toolCall={props.toolCall} onToolConfirmSubmit={props.onToolConfirmSubmit} />;
 }
 
 export default ToolCallView;

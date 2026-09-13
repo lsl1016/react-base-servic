@@ -34,6 +34,8 @@ export interface AssistantTurnBodyProps {
   onPlanConfirm?: (planId: string) => void;
   resolveTool?: (toolName: string, frontendHint?: string) => ClientTool | undefined;
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
+
   activeAskQuestion?: ToolCallState;
   plans?: Record<string, PlanRuntimeState>;
   /** 每个 Plan 当前最新的启动/恢复工具调用；更早的卡片只展示各自的历史结果快照。 */
@@ -111,6 +113,7 @@ function TurnSegmentView(props: TurnSegmentViewProps) {
             liveTimer={isLiveWorkSegment(props.segments, props.segmentIndex, segmentOptions())}
             resolveTool={props.resolveTool}
             onAskQuestionSubmit={props.onAskQuestionSubmit}
+          onToolConfirmSubmit={props.onToolConfirmSubmit}
             activeAskQuestion={props.activeAskQuestion}
           />
         )}
@@ -192,6 +195,7 @@ function TurnSegmentView(props: TurnSegmentViewProps) {
                       toolCall={call()}
                       resolveTool={props.resolveTool}
                       onAskQuestionSubmit={props.onAskQuestionSubmit}
+                      onToolConfirmSubmit={props.onToolConfirmSubmit}
                       activeAskQuestion={props.activeAskQuestion}
                     />
                   </div>

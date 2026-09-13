@@ -262,17 +262,18 @@ func ListByCallerAndRoute(ctx *gin.Context, callerKey string, routeValues []stri
 
 // agentMarkdownFrontmatter 是 SKILL.md 风格 Agent 定义文件的 frontmatter 字段。
 type agentMarkdownFrontmatter struct {
-	AgentKey     string   `yaml:"agent_key"`
-	Name         string   `yaml:"name"`
-	Description  string   `yaml:"description"`
-	CallerKey    string   `yaml:"caller_key"`
-	RouteValues  []string `yaml:"route_values"`
-	SystemPrompt string   `yaml:"system_prompt"`
-	ModelKey     string   `yaml:"model_key"`
-	ModelVersion string   `yaml:"model_version"`
-	Tools        []string `yaml:"tools"`
-	Skills       []string `yaml:"skills"`
-	MaxSteps     int      `yaml:"max_steps"`
+	AgentKey       string   `yaml:"agent_key"`
+	Name           string   `yaml:"name"`
+	Description    string   `yaml:"description"`
+	CallerKey      string   `yaml:"caller_key"`
+	RouteValues    []string `yaml:"route_values"`
+	SystemPrompt   string   `yaml:"system_prompt"`
+	ModelKey       string   `yaml:"model_key"`
+	ModelVersion   string   `yaml:"model_version"`
+	Tools          []string `yaml:"tools"`
+	Skills         []string `yaml:"skills"`
+	MaxSteps       int      `yaml:"max_steps"`
+	PermissionMode string   `yaml:"permission_mode"`
 }
 
 // ImportFromMarkdown 解析「frontmatter + 正文」格式的 Agent 定义并入库：
@@ -306,18 +307,19 @@ func ImportFromMarkdown(ctx *gin.Context, req *params.ImportAgentReq, createdBy 
 	}
 
 	createReq := &params.CreateAgentReq{
-		AgentKey:     meta.AgentKey,
-		Name:         meta.Name,
-		Description:  meta.Description,
-		CallerKey:    callerKey,
-		RouteValues:  routeValues,
-		SystemPrompt: strings.TrimSpace(body),
-		ModelKey:     meta.ModelKey,
-		ModelVersion: meta.ModelVersion,
-		Tools:        meta.Tools,
-		Skills:       meta.Skills,
-		MaxSteps:     meta.MaxSteps,
-		Status:       status,
+		AgentKey:       meta.AgentKey,
+		Name:           meta.Name,
+		Description:    meta.Description,
+		CallerKey:      callerKey,
+		RouteValues:    routeValues,
+		SystemPrompt:   strings.TrimSpace(body),
+		ModelKey:       meta.ModelKey,
+		ModelVersion:   meta.ModelVersion,
+		Tools:          meta.Tools,
+		Skills:         meta.Skills,
+		MaxSteps:       meta.MaxSteps,
+		PermissionMode: meta.PermissionMode,
+		Status:         status,
 	}
 	if createReq.AgentKey == "" && createReq.Name != "" {
 		createReq.AgentKey = sanitizeAgentKeyFromName(meta.Name)

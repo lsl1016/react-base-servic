@@ -226,6 +226,8 @@ type RegisterToolReq struct {
 	CallerKey   string          `json:"callerKey" binding:"required"`
 	RouteValues []string        `json:"routeValues" binding:"required"`
 	Config      json.RawMessage `json:"config" binding:"required" swaggertype:"object"`
+	// PermissionMode 危险操作确认模式：auto（默认）/confirm/confirm_risky；空按 auto。
+	PermissionMode string `json:"permissionMode"`
 }
 
 // UpdateToolReq Tool 更新请求
@@ -237,6 +239,8 @@ type UpdateToolReq struct {
 	RouteValues []string        `json:"routeValues"`
 	Config      json.RawMessage `json:"config" swaggertype:"object"`
 	Status      *int            `json:"status"`
+	// PermissionMode 危险操作确认模式；nil 表示不修改，空串表示重置为 auto。
+	PermissionMode *string `json:"permissionMode"`
 }
 
 // DeleteToolReq Tool 删除请求
@@ -257,18 +261,19 @@ type ToolDetailReq struct {
 
 // ToolResp Tool 响应
 type ToolResp struct {
-	ToolID      string          `json:"toolId"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	ToolType    string          `json:"toolType"`
-	CallerKey   string          `json:"callerKey"`
-	RouteValues []string        `json:"routeValues"`
-	Config      json.RawMessage `json:"config" swaggertype:"object"`
-	Status      int             `json:"status"`
-	CreatedAt   string          `json:"createdAt"`
-	CreatedBy   string          `json:"createdBy"`
-	UpdatedAt   string          `json:"updatedAt"`
-	UpdatedBy   string          `json:"updatedBy"`
+	ToolID         string          `json:"toolId"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	ToolType       string          `json:"toolType"`
+	CallerKey      string          `json:"callerKey"`
+	RouteValues    []string        `json:"routeValues"`
+	Config         json.RawMessage `json:"config" swaggertype:"object"`
+	PermissionMode string          `json:"permissionMode"`
+	Status         int             `json:"status"`
+	CreatedAt      string          `json:"createdAt"`
+	CreatedBy      string          `json:"createdBy"`
+	UpdatedAt      string          `json:"updatedAt"`
+	UpdatedBy      string          `json:"updatedBy"`
 }
 
 // ---------- API Key ----------

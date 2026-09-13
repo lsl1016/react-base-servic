@@ -21,6 +21,8 @@ export interface ToolCallCardProps {
   toolCall: ToolCallState;
   /** 是否展示详细的输入/输出 */
   showDetails?: boolean;
+  /** 危险操作确认作答（P2-3）：confirmReason 存在且 waiting 时卡片渲染允许/拒绝按钮 */
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
 }
 
 export function ToolCallCard(props: ToolCallCardProps) {
@@ -119,6 +121,28 @@ export function ToolCallCard(props: ToolCallCardProps) {
           </Show>
         </span>
       </div>
+
+      <Show when={props.toolCall.status === 'waiting' && props.toolCall.confirmReason}>
+        <div class="agent-ui-tool-confirm">
+          <div class="agent-ui-tool-confirm-reason">需要人工确认：{props.toolCall.confirmReason}</div>
+          <div class="agent-ui-tool-confirm-actions">
+            <button
+              type="button"
+              class="agent-ui-tool-confirm-approve"
+              onClick={() => props.onToolConfirmSubmit?.(props.toolCall.toolUseId, true)}
+            >
+              允许执行
+            </button>
+            <button
+              type="button"
+              class="agent-ui-tool-confirm-reject"
+              onClick={() => props.onToolConfirmSubmit?.(props.toolCall.toolUseId, false)}
+            >
+              拒绝
+            </button>
+          </div>
+        </div>
+      </Show>
 
       <Show when={expanded()}>
         <div class="agent-ui-tool-details">

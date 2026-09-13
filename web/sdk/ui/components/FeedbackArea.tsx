@@ -19,6 +19,7 @@ export interface FeedbackAreaProps {
   renderer?: ClientToolUIRenderer;
   /** 提交 ask_question 的用户答案 */
   onAskQuestionSubmit?: (toolUseId: string, content: AskQuestionAnswerContent) => void;
+  onToolConfirmSubmit?: (toolUseId: string, approved: boolean) => void;
 }
 
 function isWaitingAskQuestion(toolCall?: ToolCallState): toolCall is ToolCallState {
