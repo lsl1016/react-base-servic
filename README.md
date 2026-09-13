@@ -35,7 +35,28 @@ docker compose up -d --build
 open http://127.0.0.1:8080/react-base-service/react/playground
 ```
 
-**方式二：本机分步运行**
+**方式二：日常开发（推荐：依赖容器化 + 服务本地直跑）**
+
+改代码不需要重新打包镜像——依赖在容器里，前后端本地 `go run` 直跑（web 前端是 embed 静态资源，无独立构建步骤）：
+
+```bash
+# 依赖容器（一次性，日常开机后已在跑）：MySQL/Redis/python 沙箱
+docker compose up -d mysql redis sandbox
+
+# 本地起服务（前台，监听 :8180；改代码后重跑即生效）
+go run main.go
+
+# 或直接用脚本：./dev.sh（等价上面两条）| ./dev.sh deps | ./dev.sh stop
+```
+
+本地开发约束：
+
+- **依赖只在容器中跑**：MySQL=`127.0.0.1:3317`、Redis=`127.0.0.1:16379`、Python 沙箱=`127.0.0.1:18190`，宿主机端口由仓库根 `.env` 固化（Docker Desktop 端口自动避让不会再导致漂移）
+- **本地服务端口 8180**（`conf/mount/config.yaml` 的 `server.address`），与容器版 service（:8080）可并行：容器版当稳定环境、本地版当开发环境
+- **不要用 `docker compose up -d --build service` 验证代码改动**——那是发布形态；日常开发一律本地 `go run`
+- DB 注册的 MCP 连接（如 mcpgw 网关）本地与容器共用同一注册表，本地启动时自动拉起
+
+**方式三：本机分步运行（不依赖容器）**
 
 ```bash
 # 1. 建库（MySQL）
@@ -53,7 +74,7 @@ cd web/sdk && npm i && npm run build && cd ../..
 cd sandbox && SANDBOX_HOST=127.0.0.1 python server.py && cd ..   # 监听 :8190，需 pandas/numpy/matplotlib
 
 # 5. 启动
-go run main.go                 # 默认监听 :8080
+go run main.go                 # 监听 :8180（conf/mount/config.yaml 可改）
 ```
 
 **运维端点**：`/healthz`（存活）、`/readyz`（就绪，探测 MySQL/Redis）、`/metrics`（Prometheus 指标：run 数/模型耗时/工具失败率/WS 连接数等）；日志默认落 `log/` 目录并按大小轮转（`config.yaml` 的 `log.*` 可调）。

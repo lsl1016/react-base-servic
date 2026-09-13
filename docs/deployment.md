@@ -52,7 +52,7 @@ mysql -h <host> -u root -p < sql/init.sql
 
 | 文件 | 内容 | 关键项 |
 |---|---|---|
-| `config.yaml` | 框架基础 | `server.address`（默认 :8080）、日志级别 |
+| `config.yaml` | 框架基础 | `server.address`（本机开发 :8180）、日志级别 |
 | `custom.yaml` | 业务配置 | `llm.models`（模型目录）、`llm.react.*`（运行时参数）、`async_task.enabled` |
 | `api.yaml` | 外部 API | `llm.api_keys` + `llm.endpoints`（网关）、`python_exec` |
 | `resource.yaml` | 存储连接 | `mysql.llm`、`redis.demo`、`cos.*` |
@@ -79,16 +79,27 @@ llm:
 
 ## 4. 本地启动
 
-```bash
-# （可选）构建前端 SDK——playground 页面依赖，不构建仅 SDK 资源 404
-cd web/sdk && npm i && npm run build && cd ../..
+日常开发采用「依赖容器化 + 服务本地直跑」：MySQL/Redis/python 沙箱在容器中运行，业务服务本地 `go run`，改代码不需要重新打包镜像（web 前端为 embed 静态资源，随 `go run` 生效）。
 
-# 启动（默认 :8080）
+```bash
+# 依赖容器（一次性，日常开机后已在跑）
+docker compose up -d mysql redis sandbox
+
+# 启动本地服务（前台，监听 :8180）——或直接 ./dev.sh
 go run main.go
 
 # 验证
-curl http://127.0.0.1:8080/react-base-service/react/playground   # playground 页面
+curl http://127.0.0.1:8180/healthz
+curl http://127.0.0.1:8180/react-base-service/react/playground   # playground 页面
 ```
+
+本地开发约束（详见 README「日常开发」一节）：
+
+- 依赖宿主机端口由仓库根 `.env` 固化：MySQL=`3317`、Redis=`16379`、Python 沙箱=`18190`；`conf/mount/resource.yaml`、`conf/mount/api.yaml` 已指向这些端口
+- 本地服务端口 **8180**（`config.yaml` 的 `server.address`），与容器版 service（`:8080`，`docker compose up -d --build service`）可并行运行；容器版是发布形态，仅验证镜像时重建，日常开发一律本地 `go run`
+- 脚本 `./dev.sh` 封装了 up / deps / stop / status 四个动作
+
+完全本机分步运行（不依赖容器，含 SDK 构建与本地沙箱）见 README「方式三」。
 
 启动流程：`helpers.PreInit`（应用名/配置/日志）→ `golib.Bootstraps`（recover 等）→ `helpers.InitResource`（Job/MySQL/Redis/COS）→ `router.Http`（路由）→ `router.Tasks`（异步任务同步框架）→ `http.Start`。MySQL/Redis 不可达会直接 panic，属预期行为。
 
