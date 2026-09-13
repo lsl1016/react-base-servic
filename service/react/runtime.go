@@ -494,7 +494,14 @@ func prepareRuntimeRequest(ctx *gin.Context, payload params.ReactRunPayload, ses
 		return nil, err
 	}
 	payload.Attachments = reactAttachmentRefsFromSnapshots(attachments)
-	modelUserMessage := llm.ChatMessage{Role: model.ReactMessageRoleUser, Content: buildUserMessageContent(payload.UserPrompt, payload.LLMContext, renderAttachmentManifest(attachments))}
+	// P2-2 关键词触发器：命中时把 skill 提示追加到该条用户消息末尾（进模型 + 随 persistUserInput
+	// 落库供后续轮次回放；前端历史展示只读用户原文不受影响）。委派子 run 会整体覆写
+	// modelUserMessage，hint 天然不进入子 run。
+	userContent := buildUserMessageContent(payload.UserPrompt, payload.LLMContext, renderAttachmentManifest(attachments))
+	if skillTriggerHint := renderSkillTriggerHint(matchSkillTriggers(payload.UserPrompt, skills)); skillTriggerHint != "" {
+		userContent = userContent + "\n\n" + skillTriggerHint
+	}
+	modelUserMessage := llm.ChatMessage{Role: model.ReactMessageRoleUser, Content: userContent}
 	return &runtimeRequest{
 		payload:                 payload,
 		inputSessionID:          strings.TrimSpace(sessionID),

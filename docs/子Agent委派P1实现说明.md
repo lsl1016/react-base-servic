@@ -137,3 +137,26 @@ e2e 验证（`REACT_DELEGATE_E2E=1`，真实 MySQL + glm-4.6 + mcp-server 网关
 
 两者 e2e 均真实链路验证（MySQL + glm-4.6 + mcp 网关 / 真实 git），复跑方式：
 `REACT_DELEGATE_E2E=1 go test ./service/react/ -run 'TestToolConfirm|TestWorkspace'`。
+
+### P2-2 Skill 文件标准
+
+- 数据模型：`tblLlmSkill` 加 `triggers_json`（关键词数组，确定性匹配）与 `content`
+  （SKILL.md 正文）两列；存量库执行 init.sql「存量增量迁移」注释块的 ALTER。
+  `trigger_condition` 保持原语义（给模型读的纯文本），两者并存。
+- 导入：`POST /skill/import`（Markdown 粘贴，frontmatter：name/description/triggers +
+  正文；caller_key/route_values 缺省回退请求体）与 `POST /skill/import_zip`
+  （zip 批量，单文件 ≤1MB、SKILL.md ≤64 个、解压总量 ≤10MB，纯内存读取防 zip 炸弹）。
+- 冲突语义是**同名覆盖**：同 caller_key+name 未软删行 → 只更新文件形态拥有的字段
+  （description/triggers_json/content/status/updated_by，沿用 skill_id，不动 is_default
+  与面板维护的注册表字段）；不存在 → 走 CreateSkill 全量校验新建。
+  为 P3 Bundle「同名覆盖可回滚」铺路。skill_id 为 UUID 无软删占键问题，无需 agent 式 revive。
+- 触发器（run 装配期）：`prepareRuntimeRequest` 构造 modelUserMessage 时对用户消息做
+  子串匹配（ASCII 大小写不敏感，命中上限 5 条），命中则把 `<skill-trigger-hint>` 块
+  追加到消息末尾。注入语义：进当轮模型请求 + 随 persistUserInput 落库（后续轮次上下文
+  回放一致）；前端历史展示只读用户原文（content 字段）不受污染；委派子 run 整体覆写
+  modelUserMessage，hint 天然不进入子 run（V1 外层生效）。
+- 无 triggers 的 skill 行为不变（仅摘要索引进 system 前缀）；get_skill 按需加载机制不动
+  （content 列随全量 JSON 自动带给模型）。
+- `paths` 触发器按方案后置（等 code-agent 委派场景）；SKILL.md 内联命令块按方案不做。
+- e2e 复跑：`REACT_DELEGATE_E2E=1 go test ./service/react/ -run TestSkillTriggerE2E`
+  （命中注入 + 原文不受污染 + 未命中不注入）。

@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS `tblLlmSkill` (
     `execution_steps`     TEXT         NULL COMMENT '执行步骤(纯文本)',
     `business_context`    TEXT         NULL COMMENT '业务背景(纯文本)',
     `prompt_supplement`   TEXT         NULL COMMENT '提示词补充(含枚举映射、接口约束等)',
+    `triggers_json`       TEXT         NULL COMMENT '关键词触发器(JSON数组,run装配期命中时把提示追加到该条用户消息)',
+    `content`             MEDIUMTEXT   NULL COMMENT 'SKILL.md正文(文件导入形态)',
     `caller_key`          VARCHAR(32)  NOT NULL COMMENT '所属caller',
     `route_values`        TEXT         NULL COMMENT '路由路径(JSON数组)',
     `is_default`          TINYINT      NOT NULL DEFAULT 0 COMMENT '是否兜底skill: 0=否 1=是',
@@ -110,6 +112,11 @@ CREATE TABLE IF NOT EXISTS `tblLlmSkill` (
     INDEX `idx_caller_route` (`caller_key`, `route_values`(255)),
     INDEX `idx_caller_status` (`caller_key`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM技能表';
+
+-- 存量环境增量迁移（新环境由上方建表语句直接包含；P2-2 Skill 文件标准）：
+-- ALTER TABLE `tblLlmSkill`
+--     ADD COLUMN `triggers_json` TEXT NULL COMMENT '关键词触发器(JSON数组,run装配期命中时把提示追加到该条用户消息)' AFTER `prompt_supplement`,
+--     ADD COLUMN `content` MEDIUMTEXT NULL COMMENT 'SKILL.md正文(文件导入形态)' AFTER `triggers_json`;
 
 -- 子 Agent 定义表（注册类资源：主 Agent 经 delegate_agent 工具委派子任务，子 run 隔离执行）
 -- description 是委派质量的生命线：建议包含「适用问题类型 + 不适用边界」两段

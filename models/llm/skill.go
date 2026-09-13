@@ -22,7 +22,13 @@ type Skill struct {
 	ExecutionSteps     string                `json:"executionSteps" gorm:"column:execution_steps"`
 	BusinessContext    string                `json:"businessContext" gorm:"column:business_context"`
 	PromptSupplement   string                `json:"promptSupplement" gorm:"column:prompt_supplement"`
-	CallerKey          string                `json:"callerKey" gorm:"column:caller_key;not null"`
+	// TriggersJSON 是结构化关键词触发器（JSON 字符串数组，P2-2）：
+	// run 装配期对用户消息做确定性子串匹配，命中时把 skill 提示追加到该条用户消息。
+	// 与 TriggerCondition（给模型读的纯文本语义提示）并存，职责不同。
+	TriggersJSON string `json:"triggersJson" gorm:"column:triggers_json"`
+	// Content 是 SKILL.md 正文（文件导入形态）；get_skill 全量返回时随模型注入。
+	Content     string                `json:"content" gorm:"column:content"`
+	CallerKey   string                `json:"callerKey" gorm:"column:caller_key;not null"`
 	RouteValues        string                `json:"routeValues" gorm:"column:route_values"`
 	IsDefault          int                   `json:"isDefault" gorm:"column:is_default;not null;default:0"`
 	Status             int                   `json:"status" gorm:"column:status;not null;default:1"`
@@ -49,6 +55,21 @@ func GetSkillBySkillID(ctx *gin.Context, skillID string) (*Skill, error) {
 	var skill Skill
 	err := helpers.MysqlClientLLM.Model(&Skill{}).WithContext(ctx).
 		Where("skill_id = ?", skillID).First(&skill).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, components.ErrorDbSelect.Wrap(err)
+	}
+	return &skill, nil
+}
+
+// FindActiveSkillByCallerAndName 按 caller+name 查未软删的 Skill（含禁用行），
+// 供 SKILL.md 导入的同名覆盖（upsert）判定：导入是权威定义，命中即更新而非重复新建。
+func FindActiveSkillByCallerAndName(ctx *gin.Context, callerKey, name string) (*Skill, error) {
+	var skill Skill
+	err := helpers.MysqlClientLLM.Model(&Skill{}).WithContext(ctx).
+		Where("caller_key = ? AND name = ?", callerKey, name).First(&skill).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

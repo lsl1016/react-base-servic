@@ -1,6 +1,9 @@
 package skill
 
 import (
+	"io"
+	"strings"
+
 	"react-base-service/components"
 	"react-base-service/components/params"
 	"react-base-service/helpers"
@@ -153,4 +156,86 @@ func GetSkillDetail(ctx *gin.Context) {
 	}
 
 	components.RenderJsonSucc(ctx, skillService.ToSkillResp(s))
+}
+
+// ImportSkill 导入 SKILL.md 定义（粘贴）
+// @Summary      导入 SKILL.md 定义（粘贴）
+// @Description  解析「frontmatter + 正文」格式的 SKILL.md 并入库；正文入 content，triggers 关键词命中时在 run 装配期注入提示。同 caller+name 同名覆盖。
+// @Tags         skill
+// @Accept       json
+// @Produce      json
+// @Param        req  body     params.ImportSkillReq  true  "导入 Skill 请求体"
+// @Success      200  {object} components.DefaultRenderWithTrace{data=params.SkillResp}  "导入成功并返回 Skill 详情"
+// @Failure      400  {object} components.DefaultRenderWithTrace  "定义文件非法或导入失败"
+// @Router       /skill/import [post]
+func ImportSkill(ctx *gin.Context) {
+	var req params.ImportSkillReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		zlog.Errorf(ctx, "[Skill.Import] 请求参数绑定失败: %v", err)
+		components.RenderJsonFail(ctx, components.ErrorParamInvalid.Sprintf(err.Error()))
+		return
+	}
+
+	s, err := skillService.ImportFromMarkdown(ctx, &req, helpers.GetUserName(ctx))
+	if err != nil {
+		zlog.Errorf(ctx, "[Skill.Import] 导入失败: %v", err)
+		components.RenderJsonFail(ctx, err)
+		return
+	}
+	components.RenderJsonSucc(ctx, skillService.ToSkillResp(s))
+}
+
+// ImportSkillZip 批量导入 zip 包内的 SKILL.md
+// @Summary      批量导入 zip 包内的 SKILL.md
+// @Description  multipart 上传 zip（表单字段 file；可选 callerKey/routeValues/status 作为各 SKILL.md frontmatter 缺省兜底），遍历包内所有 SKILL.md 逐个导入，返回逐条结果（best-effort，单项失败不影响其余）。
+// @Tags         skill
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file        formData file   true  "zip 包（内含若干 <skill目录>/SKILL.md）"
+// @Param        callerKey   formData string false "兜底 callerKey"
+// @Param        routeValues formData string false "兜底 routeValues（逗号分隔）"
+// @Success      200  {object} components.DefaultRenderWithTrace{data=[]params.SkillImportItemResp}  "逐条导入结果"
+// @Failure      400  {object} components.DefaultRenderWithTrace  "上传文件缺失或 zip 非法"
+// @Router       /skill/import_zip [post]
+func ImportSkillZip(ctx *gin.Context) {
+	fileHeader, err := ctx.FormFile("file")
+	if err != nil {
+		components.RenderJsonFail(ctx, components.ErrorParamInvalid.Sprintf("缺少上传文件（表单字段 file）"))
+		return
+	}
+
+	base := params.ImportSkillReq{
+		CallerKey: ctx.PostForm("callerKey"),
+	}
+	if routeValuesText := strings.TrimSpace(ctx.PostForm("routeValues")); routeValuesText != "" {
+		for _, value := range strings.Split(routeValuesText, ",") {
+			if value = strings.TrimSpace(value); value != "" {
+				base.RouteValues = append(base.RouteValues, value)
+			}
+		}
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		components.RenderJsonFail(ctx, components.ErrorSkillImportInvalid.Sprintf("打开上传文件失败: %v", err))
+		return
+	}
+	defer file.Close()
+	zipBytes, err := io.ReadAll(io.LimitReader(file, skillService.MaxSkillZipBytes+1))
+	if err != nil {
+		components.RenderJsonFail(ctx, components.ErrorSkillImportInvalid.Sprintf("读取上传文件失败: %v", err))
+		return
+	}
+	if len(zipBytes) > skillService.MaxSkillZipBytes {
+		components.RenderJsonFail(ctx, components.ErrorSkillImportInvalid.Sprintf("zip 包超过大小上限 %d 字节", skillService.MaxSkillZipBytes))
+		return
+	}
+
+	items, err := skillService.ImportFromZip(ctx, zipBytes, &base, helpers.GetUserName(ctx))
+	if err != nil {
+		zlog.Errorf(ctx, "[Skill.ImportZip] 导入失败: %v", err)
+		components.RenderJsonFail(ctx, err)
+		return
+	}
+	components.RenderJsonSucc(ctx, items)
 }

@@ -66,7 +66,7 @@
 | 5 | 嵌套 HITL 路由：子 Agent 的 ask_question/确认冒泡到顶层 | OH：子会话继承 confirmation_policy，确认事件在子会话流 | P1 |
 | 6 | Agent 并行执行（同轮多个 task 调用） | OH `tool_concurrency_limit` + 并行 executor | P1 尾/P2 |
 | 7 | **服务端代码 Workspace**：线上镜像 → repo@commit → 每 run 隔离工作区 | `clone_repos` + worktree 优化（对话记录明确要求） | P2 |
-| 8 | Skill 文件标准（AgentSkills 格式/触发器） | SKILL.md frontmatter + triggers | P2 |
+| 8 | **Skill 文件标准**（AgentSkills 格式/触发器）✅ 已落地（`/skill/import`、`/skill/import_zip`、triggers 装配期注入） | SKILL.md frontmatter + triggers | P2 |
 | 9 | 危险操作确认（工具级 permission mode） | confirmation_policy + security_risk | P2 |
 | 10 | 插件打包安装（skill+agent+mcp 一键装） | Plugin manifest（Claude Code 兼容） | P3 |
 | 11 | 编排容器（Sequential/Parallel/Loop） | workflow 工具；eino/adk-go 三件套 | P3 |

@@ -116,7 +116,7 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		callerGroup.POST("/batch_delete", caller.BatchDelete)
 	}
 
-	// Skill 管理接口
+	// Skill 管理接口（SKILL.md 文件导入见 /skill/import 与 /skill/import_zip）
 	skillGroup := router.Group("/skill")
 	{
 		skillGroup.POST("/create", skill.CreateSkill)
@@ -124,6 +124,8 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		skillGroup.POST("/delete", skill.DeleteSkill)
 		skillGroup.POST("/list", skill.ListSkills)
 		skillGroup.POST("/detail", skill.GetSkillDetail)
+		skillGroup.POST("/import", skill.ImportSkill)
+		skillGroup.POST("/import_zip", skill.ImportSkillZip)
 	}
 
 	// 子 Agent 管理接口（delegate_agent 委派的注册表；Markdown 导入见 /agent/import）

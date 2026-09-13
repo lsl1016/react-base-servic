@@ -151,6 +151,10 @@ var ErrorSkillDefaultExists = base.Error{
 	ErrNo:  6020005,
 	ErrMsg: "该路由下已存在兜底技能，不允许重复添加: callerKey=%s, routeValues=%s",
 }
+var ErrorSkillImportInvalid = base.Error{
+	ErrNo:  6020006,
+	ErrMsg: "Skill 定义文件非法: %s",
+}
 
 // Tool 相关错误 6030xxx
 var ErrorToolNotFound = base.Error{

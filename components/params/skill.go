@@ -160,10 +160,14 @@ type CreateSkillReq struct {
 	ExecutionSteps     string   `json:"executionSteps" binding:"required"`
 	BusinessContext    string   `json:"businessContext" binding:"required"`
 	PromptSupplement   string   `json:"promptSupplement"`
-	CallerKey          string   `json:"callerKey" binding:"required"`
-	RouteValues        []string `json:"routeValues" binding:"required"`
-	Status             *int     `json:"status" binding:"required"`
-	IsDefault          *int     `json:"isDefault"`
+	// Triggers 关键词触发器（P2-2）：run 装配期命中用户消息时追加 skill 提示；空 = 仅摘要索引。
+	Triggers []string `json:"triggers"`
+	// Content SKILL.md 正文（文件导入形态）；get_skill 全量返回时注入模型。
+	Content    string   `json:"content"`
+	CallerKey  string   `json:"callerKey" binding:"required"`
+	RouteValues []string `json:"routeValues" binding:"required"`
+	Status     *int     `json:"status" binding:"required"`
+	IsDefault  *int     `json:"isDefault"`
 }
 
 // UpdateSkillReq Skill 更新请求
@@ -176,8 +180,19 @@ type UpdateSkillReq struct {
 	ExecutionSteps     string   `json:"executionSteps" binding:"required"`
 	BusinessContext    string   `json:"businessContext" binding:"required"`
 	PromptSupplement   *string  `json:"promptSupplement"`
+	Triggers           *[]string `json:"triggers"`
+	Content            *string  `json:"content"`
 	RouteValues        []string `json:"routeValues" binding:"required"`
 	Status             *int     `json:"status" binding:"required"`
+}
+
+// ImportSkillReq SKILL.md 粘贴导入请求（P2-2）；
+// frontmatter 中的 caller_key/route_values 优先，缺省回退请求体字段。
+type ImportSkillReq struct {
+	CallerKey   string   `json:"callerKey"`
+	RouteValues []string `json:"routeValues"`
+	Status      *int     `json:"status"`
+	Markdown    string   `json:"markdown" binding:"required"`
 }
 
 // DeleteSkillReq Skill 删除请求
@@ -207,6 +222,8 @@ type SkillResp struct {
 	ExecutionSteps     string   `json:"executionSteps"`
 	BusinessContext    string   `json:"businessContext"`
 	PromptSupplement   string   `json:"promptSupplement"`
+	Triggers           []string `json:"triggers"`
+	Content            string   `json:"content"`
 	CallerKey          string   `json:"callerKey"`
 	RouteValues        []string `json:"routeValues"`
 	IsDefault          int      `json:"isDefault"`
@@ -216,6 +233,14 @@ type SkillResp struct {
 	CreatedAt          string   `json:"createdAt"`
 	UpdatedAt          string   `json:"updatedAt"`
 	DeletedAt          string   `json:"deletedAt"`
+}
+
+// SkillImportItemResp zip 导入单项结果（逐条成功/失败，best-effort）
+type SkillImportItemResp struct {
+	Name    string `json:"name"`
+	SkillID string `json:"skillId"`
+	Created bool   `json:"created"`
+	Error   string `json:"error,omitempty"`
 }
 
 // RegisterToolReq Tool 注册请求
