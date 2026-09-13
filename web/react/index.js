@@ -625,6 +625,9 @@ const resources = {
     updatePath: '/skill/update',
     deletePath: '/skill/delete',
     deleteBody: (item) => ({ skillId: item.skillId }),
+    // P2-2 SKILL.md 粘贴导入（frontmatter：name/description/triggers + 正文；同名覆盖）。
+    importPath: '/skill/import',
+    importNote: '粘贴「frontmatter + 正文」格式的 SKILL.md（frontmatter 支持 name/description/triggers/caller_key/route_values，正文即技能说明）。同 caller 同名覆盖更新。',
     columns: [
       ['skillId', 'skill 标识'], ['name', '名称'], ['description', '描述'], ['triggerCondition', '触发条件'], ['isDefault', '默认'], ['callerKey', '归属 caller'], ['routeValues', '适用路由'], ['status', '状态'], ['actions', '操作'],
     ],
@@ -750,6 +753,68 @@ const resources = {
       ? [['templateId', '模板 ID'], ['status', '状态', 'select'], ['templateText', '模板 JSON', 'codeTextarea']]
       : [['templateId', '模板 ID', 'readonly'], ['revision', 'Revision', 'readonly'], ['status', '状态', 'select'], ['templateText', '模板 JSON', 'codeTextarea']],
   },
+  agent: {
+    title: '子 Agent 管理',
+    tabText: '子 Agent',
+    itemName: '子 Agent',
+    addText: '新增子 Agent',
+    idKey: 'agentId',
+    callerFilter: true,
+    listPath: '/agent/list',
+    createPath: '/agent/create',
+    updatePath: '/agent/update',
+    deletePath: '/agent/delete',
+    deleteBody: (item) => ({ agentId: item.agentId }),
+    // P1 Markdown 导入（frontmatter + 正文即 system_prompt）。
+    importPath: '/agent/import',
+    importNote: '粘贴「frontmatter + 正文」格式的子 Agent 定义（frontmatter 支持 agent_key/name/description/caller_key/route_values/model_key/model_version/tools/skills/max_steps/max_tokens_per_run/permission_mode，正文即系统提示词）。同 caller 同 agent_key 重复会报错。',
+    columns: [
+      ['agentKey', 'agent_key'], ['name', '名称'], ['description', '委派说明'], ['callerKey', '归属 caller'], ['maxSteps', '步数上限'], ['maxTokensPerRun', 'token 预算'], ['permissionMode', '权限模式'], ['status', '状态'], ['actions', '操作'],
+    ],
+    empty: () => ({
+      agentKey: '', name: '', description: '', callerKey: createTargetCallerKey(), routeText: createDefaultRouteText(),
+      systemPrompt: '', modelKey: '', modelVersion: '', toolsText: '', skillsText: '', maxSteps: 8, maxTokensPerRun: 0, permissionMode: 'inherit', status: 1,
+    }),
+    toDraft: (item) => ({
+      ...item,
+      routeText: joinRouteValues(item.routeValues),
+      toolsText: Array.isArray(item.tools) ? item.tools.join(',') : '',
+      skillsText: Array.isArray(item.skills) ? item.skills.join(',') : '',
+    }),
+    toPayload: (draft, config) => ({
+      agentId: draft.agentId,
+      agentKey: draft.agentKey,
+      name: draft.name,
+      description: draft.description,
+      callerKey: draft.callerKey || config.callerKey,
+      routeValues: splitRouteText(draft.routeText),
+      systemPrompt: draft.systemPrompt,
+      modelKey: draft.modelKey || '',
+      modelVersion: draft.modelVersion || '',
+      tools: splitRouteText(draft.toolsText),
+      skills: splitRouteText(draft.skillsText),
+      maxSteps: Number(draft.maxSteps) || 0,
+      maxTokensPerRun: Number(draft.maxTokensPerRun) || 0,
+      permissionMode: draft.permissionMode || 'inherit',
+      status: Number(draft.status),
+    }),
+    fields: (mode) => [
+      ['agentKey', 'agent_key', mode === 'edit' ? 'readonly' : 'text'],
+      ['name', '名称'],
+      ['callerKey', '归属 caller', 'readonly'],
+      ['routeText', '适用路由（逗号分隔）'],
+      ['status', '状态', 'select'],
+      ['maxSteps', '步数上限（0=默认）'],
+      ['maxTokensPerRun', 'token 预算（0=不限）'],
+      ['permissionMode', '权限模式', 'enumSelect', [['inherit', '继承父 run'], ['auto', '自动执行'], ['confirm', '每次确认'], ['confirm_risky', '高风险确认']]],
+      ['modelKey', '模型种类（空=继承）'],
+      ['modelVersion', '模型版本（空=默认）'],
+      ['toolsText', '工具白名单（逗号分隔，空=全部）'],
+      ['skillsText', 'Skill 白名单（逗号分隔，空=不注入）'],
+      ['description', '委派说明（适用/不适用）', 'textarea'],
+      ['systemPrompt', '系统提示词', 'textarea'],
+    ],
+  },
   mcp: {
     title: 'MCP 连接管理',
     tabText: 'MCP 连接',
@@ -799,6 +864,31 @@ const resources = {
       ? [['rawConfig', '原始配置（mcpServers JSON）', 'codeTextarea']]
       : [['name', '名称', 'readonly'], ['kind', '传输', 'readonly'], ['boundCallersText', '绑定 caller（逗号分隔）'], ['endpoint', '端点 URL'], ['timeoutMs', '超时(ms)'], ['status', '状态', 'select'], ['description', '描述', 'textarea'], ['headersText', '请求头 JSON', 'codeTextarea']]),
   },
+  // P3 Agent Bundle 插件包：安装表单 + 已装卡片（来源白名单内 git URL 或本地路径）。
+  bundle: {
+    title: 'Bundle 插件包',
+    tabText: 'Bundle',
+    itemName: 'Bundle',
+    addText: '安装 Bundle',
+    idKey: 'bundleId',
+    cardList: true,
+    cardKind: 'bundle',
+    listPath: '/react/bundle/list',
+    toDraft: (item) => ({ ...item }),
+    columns: [],
+  },
+  // P3 workspace 运行视图：活跃 worktree 只读清单（run 终态即释放，空列表为正常态）。
+  workspace: {
+    title: '代码工作区',
+    tabText: '工作区',
+    idKey: 'runId',
+    cardList: true,
+    cardKind: 'workspace',
+    noCreate: true,
+    listPath: '/react/workspace/active',
+    toDraft: (item) => ({ ...item }),
+    columns: [],
+  },
 };
 
 const management = {
@@ -829,6 +919,7 @@ const management = {
       this.renderTable();
     });
     $('management-add').addEventListener('click', () => this.openCreate());
+    $('management-import').addEventListener('click', () => this.openImport());
     $('management-refresh').addEventListener('click', () => this.reload());
     $('management-modal-close').addEventListener('click', () => this.closeModal());
     $('management-modal-cancel').addEventListener('click', () => this.closeModal());
@@ -850,6 +941,8 @@ const management = {
     const useCards = Boolean(resource.cardList);
     $('management-title').textContent = resource.title;
     $('management-add').textContent = resource.addText;
+    $('management-add').hidden = Boolean(resource.noCreate);
+    $('management-import').hidden = !resource.importPath;
     document.querySelectorAll('.rp-management-tab').forEach((tab) => tab.classList.toggle('rp-active', tab.dataset.type === this.type));
     $('management-table-wrap').classList.toggle('rp-hidden', useCards);
     $('management-cards').classList.toggle('rp-hidden', !useCards);
@@ -938,6 +1031,14 @@ const management = {
   },
   renderTable() {
     const resource = this.resource();
+    if (resource.cardKind === 'bundle') {
+      this.renderBundleCards();
+      return;
+    }
+    if (resource.cardKind === 'workspace') {
+      this.renderWorkspaceCards();
+      return;
+    }
     if (resource.cardList) {
       this.renderMcpCards();
       return;
@@ -1033,6 +1134,67 @@ const management = {
     }
     this.renderTable();
   },
+  // P3 Bundle 已装卡片：名称/版本/来源与钉住的 commit/资源计数/卸载。
+  renderBundleCards() {
+    const rows = this.filteredItems();
+    const container = $('management-cards');
+    if (!rows.length) {
+      container.innerHTML = '<div class="rp-mcp-empty">暂无已安装 Bundle，点击「安装 Bundle」从白名单来源安装插件包</div>';
+      this.visibleItems = rows;
+      return;
+    }
+    container.innerHTML = rows.map((item, index) => `
+      <div class="rp-mcp-card" data-index="${index}">
+        <div class="rp-mcp-card-head">
+          <span class="rp-mcp-name">${escapeHtml(item.name)}</span>
+          <span class="rp-mcp-kind">v${escapeHtml(item.version || '1.0.0')}</span>
+          <span class="rp-mcp-endpoint" title="${escapeHtml(item.source)}${item.resolvedRef ? `@${escapeHtml(item.resolvedRef)}` : ''}">${escapeHtml(shortText(item.source, 40))}${item.resolvedRef ? ` @${escapeHtml(shortText(item.resolvedRef, 8))}` : ''}</span>
+          <span class="rp-mcp-toolcount">${item.agentCount ?? 0} agent · ${item.skillCount ?? 0} skill · ${item.mcpServerCount ?? 0} mcp</span>
+          <div class="rp-row-actions rp-mcp-actions">
+            <button class="rp-button rp-link-btn rp-danger-link" data-action="uninstall" type="button">卸载（回滚）</button>
+          </div>
+        </div>
+        <div class="rp-mcp-card-body">
+          ${item.description ? `<div class="rp-mcp-bound">${escapeHtml(item.description)}</div>` : ''}
+          <div class="rp-mcp-bound">安装人：${escapeHtml(item.installedBy || '-')} · ${escapeHtml(item.installedAt || '')}</div>
+        </div>
+      </div>`).join('');
+    this.visibleItems = rows;
+  },
+  // P3 workspace 运行视图：活跃 worktree 只读卡片。
+  renderWorkspaceCards() {
+    const rows = this.filteredItems();
+    const container = $('management-cards');
+    if (!rows.length) {
+      container.innerHTML = '<div class="rp-mcp-empty">当前没有活跃的代码工作区（run 结束即释放，空列表为正常态）</div>';
+      this.visibleItems = rows;
+      return;
+    }
+    container.innerHTML = rows.map((item, index) => `
+      <div class="rp-mcp-card" data-index="${index}">
+        <div class="rp-mcp-card-head">
+          <span class="rp-mcp-name">${escapeHtml(item.service)}${item.env ? `（${escapeHtml(item.env)}）` : ''}</span>
+          <span class="rp-mcp-kind">${escapeHtml(shortText(item.commit, 10))}</span>
+          <span class="rp-mcp-endpoint" title="${escapeHtml(item.path)}">${escapeHtml(shortText(item.path, 44))}</span>
+          <span class="rp-mcp-toolcount">${escapeHtml(item.tools || '')}</span>
+        </div>
+        <div class="rp-mcp-card-body">
+          <div class="rp-mcp-bound">runId：${escapeHtml(item.runId)} · caller：${escapeHtml(item.callerKey)} · 挂载于 ${escapeHtml(item.loadedAt ? String(item.loadedAt).replace('T', ' ').slice(0, 19) : '-')}</div>
+        </div>
+      </div>`).join('');
+    this.visibleItems = rows;
+  },
+  async uninstallBundle(item) {
+    if (!confirm(`确认卸载 Bundle「${item.name}」吗？安装时新建的资源将被删除，覆盖的资源会恢复到安装前状态。`)) return;
+    this.setState(`正在卸载 ${item.name}...`);
+    try {
+      await post('/react/bundle/uninstall', { name: item.name });
+      await this.reload();
+      this.setState(`${item.name} 已卸载并回滚`);
+    } catch (error) {
+      this.setState(error.message || '卸载失败', true);
+    }
+  },
   async connectMcp(item) {
     this.setState(`正在连接 ${item.name}...`);
     try {
@@ -1061,10 +1223,39 @@ const management = {
     if (action === 'toggle-plan') this.togglePlan(item);
     if (action === 'expand') this.toggleMcpExpand(event);
     if (action === 'connect') this.connectMcp(item);
+    if (action === 'uninstall') this.uninstallBundle(item);
   },
   openCreate() {
+    // Bundle 的「新增」即安装表单。
+    if (this.type === 'bundle') {
+      this.openBundleInstall();
+      return;
+    }
     this.mode = 'create';
     this.draft = this.resource().empty();
+    this.renderModal();
+  },
+  // 通用「导入定义」入口（agent / skill 的 Markdown 粘贴导入）。
+  openImport() {
+    const resource = this.resource();
+    if (!resource.importPath) return;
+    this.mode = 'import';
+    this.draft = {
+      markdown: '',
+      callerKey: callerFilterValue() || this.config().callerKey || 'default',
+      routeText: createDefaultRouteText(),
+    };
+    this.renderModal();
+  },
+  openBundleInstall() {
+    this.mode = 'bundleInstall';
+    this.draft = {
+      source: '',
+      ref: '',
+      repoPath: '',
+      callerKey: callerFilterValue() || this.config().callerKey || 'default',
+      routeText: createDefaultRouteText(),
+    };
     this.renderModal();
   },
   async openEdit(item) {
@@ -1092,13 +1283,40 @@ const management = {
   },
   renderModal() {
     const resource = this.resource();
-    const fields = typeof resource.fields === 'function' ? resource.fields(this.mode, this.draft) : resource.fields;
-    const note = typeof resource.modalNote === 'function' ? resource.modalNote(this.mode, this.draft) : resource.modalNote;
-    $('management-modal-title').textContent = this.mode === 'create' ? resource.addText : `编辑${resource.itemName ?? resource.title.replace('管理', '')}`;
-    $('management-modal-body').innerHTML = `${note ? `<div class="rp-operation-note">${note}</div>` : ''}<div class="rp-form-grid">${fields.map(([key, label, type]) => {
+    let fields = typeof resource.fields === 'function' ? resource.fields(this.mode, this.draft) : resource.fields;
+    let note = typeof resource.modalNote === 'function' ? resource.modalNote(this.mode, this.draft) : resource.modalNote;
+    let title;
+    if (this.mode === 'import') {
+      fields = [
+        ['callerKey', '兜底 caller（frontmatter 缺省时生效）', 'readonly'],
+        ['routeText', '兜底路由（逗号分隔）'],
+        ['markdown', '定义 Markdown（frontmatter + 正文）', 'codeTextarea'],
+      ];
+      note = resource.importNote || null;
+      title = `导入${resource.itemName ?? resource.title.replace('管理', '')}定义`;
+    } else if (this.mode === 'bundleInstall') {
+      fields = [
+        ['source', '来源（白名单内 git URL 或本地路径）'],
+        ['ref', 'git ref（空=HEAD，本地路径忽略）'],
+        ['repoPath', '包内子目录（可选）'],
+        ['callerKey', '兜底 caller', 'readonly'],
+        ['routeText', '兜底路由（逗号分隔）'],
+      ];
+      note = '安装会把包内 agents/skills/mcp.json 展开写入注册表（同名覆盖）；卸载可整体回滚。来源必须在 llm.react.bundle.allowed_source_prefixes 白名单内。';
+      title = '安装 Bundle';
+    } else {
+      title = this.mode === 'create' ? resource.addText : `编辑${resource.itemName ?? resource.title.replace('管理', '')}`;
+    }
+    $('management-modal-title').textContent = title;
+    $('management-modal-body').innerHTML = `${note ? `<div class="rp-operation-note">${note}</div>` : ''}<div class="rp-form-grid">${fields.map((field) => {
+      const [key, label, type] = field;
       const value = this.draft[key] ?? '';
       if (type === 'select') {
         return `<label class="rp-field"><span class="rp-field-label">${label}</span><select class="rp-control rp-control-size-default" data-field="${key}"><option value="1" ${Number(value) === 1 ? 'selected' : ''}>启用</option><option value="0" ${Number(value) === 0 ? 'selected' : ''}>停用</option></select></label>`;
+      }
+      if (type === 'enumSelect') {
+        const options = Array.isArray(field[3]) ? field[3] : [];
+        return `<label class="rp-field"><span class="rp-field-label">${label}</span><select class="rp-control rp-control-size-default" data-field="${key}">${options.map(([optionValue, optionLabel]) => `<option value="${escapeHtml(optionValue)}" ${String(value) === String(optionValue) ? 'selected' : ''}>${escapeHtml(optionLabel)}</option>`).join('')}</select></label>`;
       }
       if (type === 'defaultSelect') {
         return `<label class="rp-field"><span class="rp-field-label">${label}</span><select class="rp-control rp-control-size-default" data-field="${key}"><option value="0" ${Number(value) === 0 ? 'selected' : ''}>否</option><option value="1" ${Number(value) === 1 ? 'selected' : ''}>是</option></select></label>`;
@@ -1130,6 +1348,32 @@ const management = {
     this.syncDraftFromModal();
     try {
       const config = this.config();
+      if (this.mode === 'import') {
+        if (!this.draft.markdown || !this.draft.markdown.trim()) throw new Error('请粘贴定义 Markdown');
+        await post(resource.importPath, {
+          callerKey: this.draft.callerKey || config.callerKey || 'default',
+          routeValues: splitRouteText(this.draft.routeText),
+          markdown: this.draft.markdown,
+        });
+        this.closeModal();
+        await this.reload();
+        return;
+      }
+      if (this.mode === 'bundleInstall') {
+        if (!this.draft.source || !this.draft.source.trim()) throw new Error('请填写安装来源');
+        this.setState('正在安装 Bundle...');
+        await post('/react/bundle/install', {
+          source: this.draft.source.trim(),
+          ref: this.draft.ref || '',
+          repoPath: this.draft.repoPath || '',
+          callerKey: this.draft.callerKey || config.callerKey || 'default',
+          routeValues: splitRouteText(this.draft.routeText),
+        });
+        this.closeModal();
+        await this.reload();
+        this.setState('Bundle 安装完成');
+        return;
+      }
       const payload = resource.toPayload(this.draft, config, this.mode);
       const isEdit = this.mode === 'edit' && this.draft[resource.idKey];
       await post(isEdit ? resource.updatePath : resource.createPath, payload);

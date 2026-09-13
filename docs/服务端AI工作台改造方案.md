@@ -68,7 +68,7 @@
 | 7 | **服务端代码 Workspace**：线上镜像 → repo@commit → 每 run 隔离工作区 | `clone_repos` + worktree 优化（对话记录明确要求） | P2 |
 | 8 | **Skill 文件标准**（AgentSkills 格式/触发器）✅ 已落地（`/skill/import`、`/skill/import_zip`、triggers 装配期注入） | SKILL.md frontmatter + triggers | P2 |
 | 9 | 危险操作确认（工具级 permission mode） | confirmation_policy + security_risk | P2 |
-| 10 | 插件打包安装（skill+agent+mcp 一键装） | Plugin manifest（Claude Code 兼容） | P3 |
+| 10 | **插件打包安装**（skill+agent+mcp 一键装）✅ 已落地（`/react/bundle/install`，同名覆盖可卸载回滚） | Plugin manifest（Claude Code 兼容） | P3 |
 | 11 | 编排容器（Sequential/Parallel/Loop） | workflow 工具；eino/adk-go 三件套 | P3 |
 
 > 注：#1–#5 与 [multi-agent-orchestration.md](./multi-agent-orchestration.md) 第一期建议**完全一致**——那次对 eino/adk-go 的调研得出的路径（子 Agent 即 Meta Tool + 事件路径 + 历史隔离），正是 OpenHands 生产代码的实际做法（task 工具 + 注册表 + 子会话）。**三个独立来源指向同一条路，可以放心押注。**本方案在此基础上补齐 OpenHands 独有的四块：文件型 Agent 定义、Skill 标准、插件、Workspace。

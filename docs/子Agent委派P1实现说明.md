@@ -160,3 +160,28 @@ e2e 验证（`REACT_DELEGATE_E2E=1`，真实 MySQL + glm-4.6 + mcp-server 网关
 - `paths` 触发器按方案后置（等 code-agent 委派场景）；SKILL.md 内联命令块按方案不做。
 - e2e 复跑：`REACT_DELEGATE_E2E=1 go test ./service/react/ -run TestSkillTriggerE2E`
   （命中注入 + 原文不受污染 + 未命中不注入）。
+
+### P3 已落地：子代理预算、Agent Bundle、管理面板
+
+**子代理预算（token 口径）**：`tblLlmAgent.max_tokens_per_run`（0=不限，frontmatter 同名支持）。
+口径 = 子 run 输入+输出+委派孙代理 delegated_*（递归）；engine 每轮模型调用后检查，
+仅在还有后续工具轮次时终止（已产出最终回答的轮次保留完成态，OH max_budget_per_run 同款语义），
+超限错误经委派既有软错误通道回填父循环。积分体系保持 user 级不接入引擎（口径决策）。
+
+**Agent Bundle 插件包**：布局 OH Claude Code 兼容（`.plugin/plugin.json` 或根 `manifest.json`，
+name 强校验 kebab-case）+ `agents/*.md` + `skills/<name>/SKILL.md` + `.mcp.json`（仅 url 形式）。
+新表 `tblLlmBundle`/`tblLlmBundleResource`，资源清单记录 previous_state_json 覆盖前整行快照——
+卸载按清单逆序回滚（新建软删、覆盖按快照恢复含软删态还原），这是 OH 没有而方案要求的增强。
+拉取：git URL 走 mirror 缓存 + rev-parse 钉 commit + 临时 worktree（git 子命令白名单与
+workspace 同集）；本地路径直接读目录。来源限 `llm.react.bundle.allowed_source_prefixes`
+白名单前缀（空列表拒绝一切）。重装同名字 = 先卸载还原再装新；安装中途失败自动卸载清理。
+API：`POST /react/bundle/install | uninstall | list`。
+
+**管理面板**（web/react/index.js 数据驱动扩展）：「子 Agent」标准表格 tab（CRUD + 权限模式/预算字段）；
+通用「导入定义」机制（`importPath` 配置，agent 与 skill 面板共用 Markdown 粘贴导入，补齐 P2-2 的
+skill 导入 UI 缺口）；「Bundle」卡片 tab（安装表单 + 已装卡片 + 卸载回滚按钮）；「工作区」只读
+卡片 tab（`POST /react/workspace/active` 暴露 workspace.Manager 活跃 worktree 快照，run 结束即空）。
+
+e2e 复跑：`REACT_DELEGATE_E2E=1 go test ./service/react/ -run TestSubAgentBudgetE2E`、
+`REACT_DELEGATE_E2E=1 go test ./service/bundle/ -run TestBundleInstallUninstallE2E`；
+面板已浏览器全链路冒烟（agent 导入、bundle 安装/卸载回滚、工作区活态卡片随 run 释放）。

@@ -82,6 +82,8 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		reactGroup.POST("/bundle/install", react.InstallBundle)
 		reactGroup.POST("/bundle/uninstall", react.UninstallBundle)
 		reactGroup.POST("/bundle/list", react.ListBundles)
+		// 代码工作区运行视图（P3：活跃 worktree 清单，只读）
+		reactGroup.POST("/workspace/active", react.ListActiveWorkspaces)
 		// 长期记忆管理面（P2：审计与管理面，见 controllers/http/react/memory.go；写路径与引擎 memory_write 工具共用写核心）
 		reactGroup.POST("/memory/list", react.ListMemories)
 		reactGroup.POST("/memory/create", react.CreateMemory)

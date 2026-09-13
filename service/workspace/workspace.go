@@ -61,6 +61,8 @@ type Allocation struct {
 	MCPServerName string `json:"mcpServerName"`
 	// CallerKey 是工具副本同步的归属 caller（release 时按此清理）。
 	CallerKey string `json:"callerKey"`
+	// LoadedAt 是分配完成时间（管理面运行视图展示）。
+	LoadedAt *time.Time `json:"loadedAt"`
 }
 
 // Manager 管理工作区分配与释放；进程内单例（Default()）。
@@ -157,6 +159,7 @@ func (m *Manager) Load(ctx *gin.Context, runID, callerKey, service, env string) 
 		zlog.Warnf(ctx, "[Workspace] 工具同步失败(尝试继续): server=%s, err=%v", serverName, err)
 	}
 
+	now := time.Now()
 	alloc := &Allocation{
 		Service:       service,
 		Env:           env,
@@ -166,6 +169,7 @@ func (m *Manager) Load(ctx *gin.Context, runID, callerKey, service, env string) 
 		Path:          worktree,
 		MCPServerName: serverName,
 		CallerKey:     callerKey,
+		LoadedAt:      &now,
 	}
 	m.active[runID] = append(m.active[runID], alloc)
 	zlog.Infof(ctx, "[Workspace] 工作区就绪: runId=%s, service=%s@%s(ref=%s), path=%s, tools=%s_*", runID, service, commit, ref, worktree, serverName)
@@ -182,6 +186,42 @@ func (m *Manager) ReleaseRun(ctx *gin.Context, runID string) {
 	for _, alloc := range allocs {
 		m.release(ctx, alloc)
 	}
+}
+
+// ActiveAllocation 是管理面运行视图条目（/react/workspace/active）。
+type ActiveAllocation struct {
+	RunID   string     `json:"runId"`
+	Service string     `json:"service"`
+	Env     string     `json:"env"`
+	Ref     string     `json:"ref"`
+	Commit  string     `json:"commit"`
+	Path    string     `json:"path"`
+	Tools   string     `json:"tools"`
+	Caller  string     `json:"callerKey"`
+	Loaded  *time.Time `json:"loadedAt"`
+}
+
+// ActiveSnapshot 返回当前活跃 worktree 清单（值拷贝，含挂载时间）。
+func (m *Manager) ActiveSnapshot() []ActiveAllocation {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	snapshot := make([]ActiveAllocation, 0, len(m.active))
+	for runID, allocs := range m.active {
+		for _, alloc := range allocs {
+			snapshot = append(snapshot, ActiveAllocation{
+				RunID:   runID,
+				Service: alloc.Service,
+				Env:     alloc.Env,
+				Ref:     alloc.Ref,
+				Commit:  alloc.Commit,
+				Path:    alloc.Path,
+				Tools:   alloc.MCPServerName + "_*",
+				Caller:  alloc.CallerKey,
+				Loaded:  alloc.LoadedAt,
+			})
+		}
+	}
+	return snapshot
 }
 
 func (m *Manager) release(ctx *gin.Context, alloc *Allocation) {
