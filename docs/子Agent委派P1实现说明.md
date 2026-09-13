@@ -109,3 +109,31 @@ e2e 验证（`REACT_DELEGATE_E2E=1`，真实 MySQL + glm-4.6 + mcp-server 网关
 - 委派清单（delegate_agent 工具描述）仍是外层 run 装配快照：新 agent 在下一个外层 run
   才对主 LLM 可见（委派执行时已实时解析定义，见第 7 节）。
 - P2（代码 Workspace、AgentSkills 文件标准、危险操作确认）与 P3（Bundle 插件、编排容器）按方案后续推进。
+
+
+## 9. P2 已落地：危险操作确认（P2-3）与代码工作区（P2-1）
+
+### P2-3 危险操作确认（commit 6b1da61）
+
+- `tblLlmTool.permission_mode`：auto（默认，行为与历史一致）/ confirm / confirm_risky；
+  `config.riskPatterns` 自定义风险正则（默认表：drop/alter/truncate/delete from/update set/
+  kill/shutdown/restart；匹配目标=工具名（下划线归一空格）+ 序列化入参）。
+- 确认门在 executeServerTool（http/mcp）执行前：`tool_confirm_request` 事件（带 agentPath）→
+  waiting_client_message → 经 clientHub 按 toolUseId 等 `tool_confirm_answer`；
+  拒绝回填「用户拒绝」（IsError，卡片 rejected，指示模型不得重试）。
+- agent 级收紧：`tblLlmAgent.permission_mode`（frontmatter 支持）作为子 run 权限下限。
+- SDK：确认卡片（允许/拒绝按钮）+ `sendToolConfirmAnswer`。
+
+### P2-1 代码工作区（commit 655715c）
+
+- `llm.react.workspace`：enabled/root_dir/mirror_dir/resolvers（静态白名单：
+  service+env → repo_url+ref；真实镜像中心解析后续接入）。
+- `service/workspace`：bare mirror 单副本（clone --mirror/fetch --prune）→ 每 run
+  git worktree（commit 锁定，绝对路径）→ 动态挂载 `ws_<service>_` 前缀只读 repo MCP 工具
+  → run 终态统一释放（工具副本/MCP 客户端/worktree；孤儿目录全清兜底）。
+- `load_runtime_code` 内置工具为入口；模型按 get_tool/execute_tool 两段式使用检索工具。
+- 安全：service/env/ref 正则校验、git 子命令白名单、常量可执行文件不经 shell、
+  只读语义由 repo-mcp 工具集保证。
+
+两者 e2e 均真实链路验证（MySQL + glm-4.6 + mcp 网关 / 真实 git），复跑方式：
+`REACT_DELEGATE_E2E=1 go test ./service/react/ -run 'TestToolConfirm|TestWorkspace'`。
