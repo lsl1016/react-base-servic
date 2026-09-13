@@ -81,7 +81,10 @@ type runtimeRequest struct {
 	clientHub *clientMessageHub
 	// agentPermissionMode 是子 run 的 agent 级工具确认收紧（tblLlmAgent.permission_mode，
 	// inherit/空 = 不收紧）；外层 run 为空。
-	agentPermissionMode    string
+	agentPermissionMode string
+	// tokenBudget 是子 run 递归 token 预算上限（P3 子代理预算，tblLlmAgent.max_tokens_per_run；
+	// 0=不限）；外层 run 恒 0。口径 = 本 run 输入+输出+委派孙代理 delegated_*。
+	tokenBudget            int
 	routeValuesJSON        string
 	historyMessages        []llm.ChatMessage
 	historyMessageRefs     [][]reactMessageRef

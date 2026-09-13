@@ -75,22 +75,23 @@ func CreateAgent(ctx *gin.Context, req *params.CreateAgentReq, createdBy string)
 	}
 
 	agent := &model.Agent{
-		AgentID:        "agent_" + strings.ReplaceAll(uuid.New().String(), "-", ""),
-		AgentKey:       req.AgentKey,
-		Name:           req.Name,
-		Description:    req.Description,
-		CallerKey:      req.CallerKey,
-		RouteValues:    string(routeValues),
-		SystemPrompt:   req.SystemPrompt,
-		ModelKey:       strings.TrimSpace(req.ModelKey),
-		ModelVersion:   strings.TrimSpace(req.ModelVersion),
-		ToolsJSON:      string(toolsJSON),
-		SkillsJSON:     string(skillsJSON),
-		MaxSteps:       req.MaxSteps,
-		PermissionMode: normalizePermissionMode(req.PermissionMode),
-		Status:         status,
-		CreatedBy:      createdBy,
-		UpdatedBy:      createdBy,
+		AgentID:         "agent_" + strings.ReplaceAll(uuid.New().String(), "-", ""),
+		AgentKey:        req.AgentKey,
+		Name:            req.Name,
+		Description:     req.Description,
+		CallerKey:       req.CallerKey,
+		RouteValues:     string(routeValues),
+		SystemPrompt:    req.SystemPrompt,
+		ModelKey:        strings.TrimSpace(req.ModelKey),
+		ModelVersion:    strings.TrimSpace(req.ModelVersion),
+		ToolsJSON:       string(toolsJSON),
+		SkillsJSON:      string(skillsJSON),
+		MaxSteps:        req.MaxSteps,
+		MaxTokensPerRun: req.MaxTokensPerRun,
+		PermissionMode:  normalizePermissionMode(req.PermissionMode),
+		Status:          status,
+		CreatedBy:       createdBy,
+		UpdatedBy:       createdBy,
 	}
 	if err := model.CreateAgent(ctx, agent); err != nil {
 		return nil, err
@@ -105,19 +106,20 @@ func reviveDeletedAgent(ctx *gin.Context, deleted *model.Agent, req *params.Crea
 		return nil, err
 	}
 	updates := map[string]interface{}{
-		"name":            req.Name,
-		"description":     req.Description,
-		"route_values":    string(routeValues),
-		"system_prompt":   req.SystemPrompt,
-		"model_key":       strings.TrimSpace(req.ModelKey),
-		"model_version":   strings.TrimSpace(req.ModelVersion),
-		"tools_json":      string(toolsJSON),
-		"skills_json":     string(skillsJSON),
-		"max_steps":       req.MaxSteps,
-		"permission_mode": normalizePermissionMode(req.PermissionMode),
-		"status":          status,
-		"updated_by":      updatedBy,
-		"deleted_at":      0,
+		"name":              req.Name,
+		"description":       req.Description,
+		"route_values":      string(routeValues),
+		"system_prompt":     req.SystemPrompt,
+		"model_key":         strings.TrimSpace(req.ModelKey),
+		"model_version":     strings.TrimSpace(req.ModelVersion),
+		"tools_json":        string(toolsJSON),
+		"skills_json":       string(skillsJSON),
+		"max_steps":         req.MaxSteps,
+		"max_tokens_per_run": req.MaxTokensPerRun,
+		"permission_mode":   normalizePermissionMode(req.PermissionMode),
+		"status":            status,
+		"updated_by":        updatedBy,
+		"deleted_at":        0,
 	}
 	if err := model.UpdateAgentByAgentIDUnscoped(ctx, deleted.AgentID, updates); err != nil {
 		return nil, err
@@ -193,6 +195,9 @@ func UpdateAgent(ctx *gin.Context, req *params.UpdateAgentReq) (*model.Agent, er
 	if req.MaxSteps != nil {
 		updates["max_steps"] = *req.MaxSteps
 	}
+	if req.MaxTokensPerRun != nil {
+		updates["max_tokens_per_run"] = *req.MaxTokensPerRun
+	}
 	if req.PermissionMode != nil {
 		if err := validatePermissionMode(*req.PermissionMode); err != nil {
 			return nil, err
@@ -262,18 +267,19 @@ func ListByCallerAndRoute(ctx *gin.Context, callerKey string, routeValues []stri
 
 // agentMarkdownFrontmatter 是 SKILL.md 风格 Agent 定义文件的 frontmatter 字段。
 type agentMarkdownFrontmatter struct {
-	AgentKey       string   `yaml:"agent_key"`
-	Name           string   `yaml:"name"`
-	Description    string   `yaml:"description"`
-	CallerKey      string   `yaml:"caller_key"`
-	RouteValues    []string `yaml:"route_values"`
-	SystemPrompt   string   `yaml:"system_prompt"`
-	ModelKey       string   `yaml:"model_key"`
-	ModelVersion   string   `yaml:"model_version"`
-	Tools          []string `yaml:"tools"`
-	Skills         []string `yaml:"skills"`
-	MaxSteps       int      `yaml:"max_steps"`
-	PermissionMode string   `yaml:"permission_mode"`
+	AgentKey        string   `yaml:"agent_key"`
+	Name            string   `yaml:"name"`
+	Description     string   `yaml:"description"`
+	CallerKey       string   `yaml:"caller_key"`
+	RouteValues     []string `yaml:"route_values"`
+	SystemPrompt    string   `yaml:"system_prompt"`
+	ModelKey        string   `yaml:"model_key"`
+	ModelVersion    string   `yaml:"model_version"`
+	Tools           []string `yaml:"tools"`
+	Skills          []string `yaml:"skills"`
+	MaxSteps        int      `yaml:"max_steps"`
+	MaxTokensPerRun int      `yaml:"max_tokens_per_run"`
+	PermissionMode  string   `yaml:"permission_mode"`
 }
 
 // ImportFromMarkdown 解析「frontmatter + 正文」格式的 Agent 定义并入库：
@@ -307,19 +313,20 @@ func ImportFromMarkdown(ctx *gin.Context, req *params.ImportAgentReq, createdBy 
 	}
 
 	createReq := &params.CreateAgentReq{
-		AgentKey:       meta.AgentKey,
-		Name:           meta.Name,
-		Description:    meta.Description,
-		CallerKey:      callerKey,
-		RouteValues:    routeValues,
-		SystemPrompt:   strings.TrimSpace(body),
-		ModelKey:       meta.ModelKey,
-		ModelVersion:   meta.ModelVersion,
-		Tools:          meta.Tools,
-		Skills:         meta.Skills,
-		MaxSteps:       meta.MaxSteps,
-		PermissionMode: meta.PermissionMode,
-		Status:         status,
+		AgentKey:        meta.AgentKey,
+		Name:            meta.Name,
+		Description:     meta.Description,
+		CallerKey:       callerKey,
+		RouteValues:     routeValues,
+		SystemPrompt:    strings.TrimSpace(body),
+		ModelKey:        meta.ModelKey,
+		ModelVersion:    meta.ModelVersion,
+		Tools:           meta.Tools,
+		Skills:          meta.Skills,
+		MaxSteps:        meta.MaxSteps,
+		MaxTokensPerRun: meta.MaxTokensPerRun,
+		PermissionMode:  meta.PermissionMode,
+		Status:          status,
 	}
 	if createReq.AgentKey == "" && createReq.Name != "" {
 		createReq.AgentKey = sanitizeAgentKeyFromName(meta.Name)
@@ -467,6 +474,7 @@ func ToAgentResp(a *model.Agent) params.AgentResp {
 		Tools:          parseAgentReferenceJSON(a.ToolsJSON),
 		Skills:         parseAgentReferenceJSON(a.SkillsJSON),
 		MaxSteps:       a.MaxSteps,
+		MaxTokensPerRun: a.MaxTokensPerRun,
 		PermissionMode: a.PermissionMode,
 		Status:         a.Status,
 		CreatedBy:      a.CreatedBy,

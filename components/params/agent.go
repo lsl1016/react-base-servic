@@ -2,36 +2,38 @@ package params
 
 // CreateAgentReq 子 Agent 创建请求
 type CreateAgentReq struct {
-	AgentKey       string   `json:"agentKey" binding:"required"`
-	Name           string   `json:"name" binding:"required"`
-	Description    string   `json:"description" binding:"required"`
-	CallerKey      string   `json:"callerKey" binding:"required"`
-	RouteValues    []string `json:"routeValues"`
-	SystemPrompt   string   `json:"systemPrompt" binding:"required"`
-	ModelKey       string   `json:"modelKey"`
-	ModelVersion   string   `json:"modelVersion"`
-	Tools          []string `json:"tools"`
-	Skills         []string `json:"skills"`
-	MaxSteps       int      `json:"maxSteps"`
-	PermissionMode string   `json:"permissionMode"`
-	Status         *int     `json:"status" binding:"required"`
+	AgentKey        string   `json:"agentKey" binding:"required"`
+	Name            string   `json:"name" binding:"required"`
+	Description     string   `json:"description" binding:"required"`
+	CallerKey       string   `json:"callerKey" binding:"required"`
+	RouteValues     []string `json:"routeValues"`
+	SystemPrompt    string   `json:"systemPrompt" binding:"required"`
+	ModelKey        string   `json:"modelKey"`
+	ModelVersion    string   `json:"modelVersion"`
+	Tools           []string `json:"tools"`
+	Skills          []string `json:"skills"`
+	MaxSteps        int      `json:"maxSteps"`
+	MaxTokensPerRun int      `json:"maxTokensPerRun"`
+	PermissionMode  string   `json:"permissionMode"`
+	Status          *int     `json:"status" binding:"required"`
 }
 
 // UpdateAgentReq 子 Agent 更新请求
 type UpdateAgentReq struct {
-	AgentID        string   `json:"agentId" binding:"required"`
-	AgentKey       string   `json:"agentKey" binding:"required"`
-	Name           string   `json:"name" binding:"required"`
-	Description    string   `json:"description" binding:"required"`
-	RouteValues    []string `json:"routeValues"`
-	SystemPrompt   *string  `json:"systemPrompt"`
-	ModelKey       *string  `json:"modelKey"`
-	ModelVersion   *string  `json:"modelVersion"`
-	Tools          []string `json:"tools"`
-	Skills         []string `json:"skills"`
-	MaxSteps       *int     `json:"maxSteps"`
-	PermissionMode *string  `json:"permissionMode"`
-	Status         *int     `json:"status" binding:"required"`
+	AgentID         string   `json:"agentId" binding:"required"`
+	AgentKey        string   `json:"agentKey" binding:"required"`
+	Name            string   `json:"name" binding:"required"`
+	Description     string   `json:"description" binding:"required"`
+	RouteValues     []string `json:"routeValues"`
+	SystemPrompt    *string  `json:"systemPrompt"`
+	ModelKey        *string  `json:"modelKey"`
+	ModelVersion    *string  `json:"modelVersion"`
+	Tools           []string `json:"tools"`
+	Skills          []string `json:"skills"`
+	MaxSteps        *int     `json:"maxSteps"`
+	MaxTokensPerRun *int     `json:"maxTokensPerRun"`
+	PermissionMode  *string  `json:"permissionMode"`
+	Status          *int     `json:"status" binding:"required"`
 }
 
 // DeleteAgentReq 子 Agent 删除请求
@@ -62,22 +64,23 @@ type ImportAgentReq struct {
 
 // AgentResp 子 Agent 响应
 type AgentResp struct {
-	AgentID        string   `json:"agentId"`
-	AgentKey       string   `json:"agentKey"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	CallerKey      string   `json:"callerKey"`
-	RouteValues    []string `json:"routeValues"`
-	SystemPrompt   string   `json:"systemPrompt"`
-	ModelKey       string   `json:"modelKey"`
-	ModelVersion   string   `json:"modelVersion"`
-	Tools          []string `json:"tools"`
-	Skills         []string `json:"skills"`
-	MaxSteps       int      `json:"maxSteps"`
-	PermissionMode string   `json:"permissionMode"`
-	Status         int      `json:"status"`
-	CreatedBy      string   `json:"createdBy"`
-	UpdatedBy      string   `json:"updatedBy"`
-	CreatedAt      string   `json:"createdAt"`
-	UpdatedAt      string   `json:"updatedAt"`
+	AgentID         string   `json:"agentId"`
+	AgentKey        string   `json:"agentKey"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	CallerKey       string   `json:"callerKey"`
+	RouteValues     []string `json:"routeValues"`
+	SystemPrompt    string   `json:"systemPrompt"`
+	ModelKey        string   `json:"modelKey"`
+	ModelVersion    string   `json:"modelVersion"`
+	Tools           []string `json:"tools"`
+	Skills          []string `json:"skills"`
+	MaxSteps        int      `json:"maxSteps"`
+	MaxTokensPerRun int      `json:"maxTokensPerRun"`
+	PermissionMode  string   `json:"permissionMode"`
+	Status          int      `json:"status"`
+	CreatedBy       string   `json:"createdBy"`
+	UpdatedBy       string   `json:"updatedBy"`
+	CreatedAt       string   `json:"createdAt"`
+	UpdatedAt       string   `json:"updatedAt"`
 }

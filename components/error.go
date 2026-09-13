@@ -111,6 +111,10 @@ var ErrorReactInputTooLong = base.Error{
 	ErrNo:  6000105,
 	ErrMsg: "输入内容过长，请精简或拆分提问: %s",
 }
+var ErrorSubAgentBudgetExceeded = base.Error{
+	ErrNo:  6000107,
+	ErrMsg: "子 Agent 预算超限（累计 %d tokens > 上限 %d，含委派孙代理），已终止: %s",
+}
 var ErrorReactPlaygroundForbidden = base.Error{
 	ErrNo:  6000106,
 	ErrMsg: "无权访问 ReAct playground，请联系管理员开通权限",

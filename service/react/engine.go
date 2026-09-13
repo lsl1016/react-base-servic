@@ -211,6 +211,12 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 			return state.finish(streamResult.Content, streamResult.TerminationReason)
 		}
 
+		// 子代理预算（P3）：仅在还有后续工具轮次时检查——已产出最终回答的轮次保留完成态
+		//（OH max_budget_per_run 同款语义）；超限错误经委派软错误通道回填父循环。
+		if err := state.checkTokenBudget(req.tokenBudget); err != nil {
+			return err
+		}
+
 		results, err := state.executeToolCalls(streamResult.ToolCalls, step)
 		if err != nil {
 			return err
@@ -252,6 +258,26 @@ func (s *reactEngineState) updateLastTokenUsage(inputTokens, outputTokens int) e
 		"last_input_tokens":  inputTokens,
 		"last_output_tokens": outputTokens,
 	})
+}
+
+// tokenBudgetExceeded 判定子 run 递归 token 口径是否超限（P3 子代理预算，0=不限）。
+func tokenBudgetExceeded(budget, inputTokens, outputTokens, delegatedInputTokens, delegatedOutputTokens int) bool {
+	if budget <= 0 {
+		return false
+	}
+	return inputTokens+outputTokens+delegatedInputTokens+delegatedOutputTokens > budget
+}
+
+// checkTokenBudget 每轮模型调用后按递归口径（本 run 输入+输出+委派孙代理 delegated_*）检查预算；
+// 超限返回预算错误，run 走 error 态并经委派软错误通道回填父循环。
+func (s *reactEngineState) checkTokenBudget(budget int) error {
+	delegatedInput := int(s.delegatedInputTokens.Load())
+	delegatedOutput := int(s.delegatedOutputTokens.Load())
+	if !tokenBudgetExceeded(budget, s.inputTokens, s.outputTokens, delegatedInput, delegatedOutput) {
+		return nil
+	}
+	return components.ErrorSubAgentBudgetExceeded.Sprintf(
+		s.inputTokens+s.outputTokens+delegatedInput+delegatedOutput, budget, s.agentPath)
 }
 
 func (s *reactEngineState) persistPartialAssistant(result collectLLMStreamResult, actualModel reactModelTarget, step int) error {

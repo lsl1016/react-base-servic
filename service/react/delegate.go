@@ -230,6 +230,9 @@ func (s *reactEngineState) buildSubAgentRuntimeRequest(agent model.Agent, task, 
 	// agent 级工具确认收紧（P2-3）：inherit/空 = 不收紧，confirm/confirm_risky 作为子 run
 	// 内全部服务端工具的权限下限（与工具级取更严者）。
 	base.agentPermissionMode = strings.TrimSpace(agent.PermissionMode)
+	// 子代理预算（P3）：agent 定义的递归 token 上限，engine 每轮模型调用后检查，超限终止子 run
+	// 并经软错误通道回填父循环（OH max_budget_per_run 的 token 口径版）。
+	base.tokenBudget = agent.MaxTokensPerRun
 
 	subRunID := generateRunID()
 	base.modelUserMessageRef = reactMessageRef{RunID: subRunID, MessageID: generateMessageID(), Seq: 1}

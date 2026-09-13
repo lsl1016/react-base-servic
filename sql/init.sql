@@ -134,10 +134,11 @@ CREATE TABLE IF NOT EXISTS `tblLlmAgent` (
     `tools_json`      VARCHAR(1024) NOT NULL DEFAULT '[]' COMMENT '业务工具名白名单(JSON数组,空=继承caller全部可见工具)',
     `skills_json`     VARCHAR(1024) NOT NULL DEFAULT '[]' COMMENT 'Skill名白名单(JSON数组,空=不注入skill索引)',
     `max_steps`       INT          NOT NULL DEFAULT 8 COMMENT '子run步数上限(默认小于主run)',
-    `permission_mode` VARCHAR(16)  NOT NULL DEFAULT 'inherit' COMMENT '权限模式: inherit/auto/confirm/confirm_risky(P2生效)',
-    `status`          TINYINT      NOT NULL DEFAULT 1 COMMENT '状态: 0=禁用 1=启用',
-    `created_by`      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '创建人',
-    `updated_by`      VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '更新人',
+    `max_tokens_per_run` INT      NOT NULL DEFAULT 0 COMMENT '子run递归token预算上限(0=不限,含委派孙代理)',
+    `permission_mode` VARCHAR(16)   NOT NULL DEFAULT 'inherit' COMMENT '权限模式: inherit/auto/confirm/confirm_risky(P2生效)',
+    `status`          TINYINT       NOT NULL DEFAULT 1 COMMENT '状态: 0=禁用 1=启用',
+    `created_by`      VARCHAR(64)   NOT NULL DEFAULT '' COMMENT '创建人',
+    `updated_by`      VARCHAR(64)   NOT NULL DEFAULT '' COMMENT '更新人',
     `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted_at`      BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '删除标记(0=未删除)',
@@ -145,6 +146,10 @@ CREATE TABLE IF NOT EXISTS `tblLlmAgent` (
     UNIQUE KEY `uk_caller_agent` (`caller_key`, `agent_key`),
     INDEX `idx_caller_route` (`caller_key`, `route_values`(255))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM子Agent定义表';
+
+-- 存量环境增量迁移（新环境由上方建表语句直接包含；P3 子代理预算）：
+-- ALTER TABLE `tblLlmAgent`
+--     ADD COLUMN `max_tokens_per_run` INT NOT NULL DEFAULT 0 COMMENT '子run递归token预算上限(0=不限,含委派孙代理)' AFTER `max_steps`;
 
 -- MCP 连接注册表（管理接口登记的 MCP 服务器；启动时拉起客户端并同步工具进 tblLlmTool）
 CREATE TABLE IF NOT EXISTS `tblLlmMcpServer` (
