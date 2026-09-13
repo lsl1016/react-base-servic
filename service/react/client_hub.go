@@ -36,6 +36,10 @@ type clientMessageHub struct {
 	// pending 是未被任何等待者认领的可寻址消息缓冲（有界，丢最旧）。
 	pending []params.ReactWSMessage
 	started bool
+	// deadErr 非 nil 表示读通道已终结（断连/关闭）：pump 已退出不再消费 readClient，
+	// 之后注册的等待者必须立即收到该错误——否则并行委派下「断连时还在模型调用、
+	// 稍后才进入等待」的子 run 会永远阻塞，父 run 的 wg.Wait 跟随挂死。
+	deadErr error
 }
 
 const clientHubPendingCap = 16
@@ -65,6 +69,11 @@ func (h *clientMessageHub) wait(match func(params.ReactWSMessage) bool) (params.
 	}
 	w := &clientMsgWaiter{ch: make(chan hubEvent, 1), match: match}
 	h.mu.Lock()
+	// 读通道已终结：不再注册等待，立即向调用方返回断连错误（迟到等待者的收敛路径）。
+	if h.deadErr != nil {
+		h.mu.Unlock()
+		return params.ReactWSMessage{}, h.deadErr
+	}
 	// 注册前先认领缓冲：答复先于等待者注册到达时（事件发射与等待注册之间的窗口），在此补投。
 	for i, msg := range h.pending {
 		if w.match(msg) {
@@ -103,6 +112,7 @@ func (h *clientMessageHub) broadcastError(err error) {
 		waiters = append(waiters, w)
 	}
 	h.pending = nil // 连接已断，待领缓冲不再有意义
+	h.deadErr = err // 标记读通道终结：之后注册的等待者立即收到该错误
 	h.mu.Unlock()
 	for _, w := range waiters {
 		w.ch <- hubEvent{err: err}

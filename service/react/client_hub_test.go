@@ -228,6 +228,42 @@ func TestClientHubErrorBroadcast(t *testing.T) {
 	}
 }
 
+// TestClientHubLateWaiterAfterDisconnect 防回归（并行断连级联 e2e 抓出的引擎缺陷）：
+// pump 在断连后永久退出，若「断连时还在模型调用、稍后才进入等待」的子 run 此刻注册
+// 等待者，必须立即收到断连错误立即收敛——修复前会永远阻塞在 w.ch，父 run 的
+// wg.Wait 跟随挂死（run 永不终态）。
+func TestClientHubLateWaiterAfterDisconnect(t *testing.T) {
+	reader, _, errCh := newHubTestReader()
+	hub := newClientMessageHub(reader)
+
+	// 第一个等待者先注册（pump 随之启动），然后读通道断连。
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := hub.wait(func(m params.ReactWSMessage) bool { return true })
+		firstDone <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	errCh <- errors.New("connection closed")
+	if err := <-firstDone; err == nil || err.Error() != "connection closed" {
+		t.Fatalf("在册等待者应收到断连错误: %v", err)
+	}
+
+	// 迟到等待者：pump 已退出，注册即返回断连错误而非永久阻塞。
+	done := make(chan error, 1)
+	go func() {
+		_, err := hub.wait(func(m params.ReactWSMessage) bool { return true })
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || err.Error() != "connection closed" {
+			t.Fatalf("迟到等待者应立即收到断连错误: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("迟到等待者永久阻塞（断连后注册的等待者未收敛）")
+	}
+}
+
 // TestClientHubMultiWaiterUnmatchedIgnored 验证多等待者时未被认领的消息被忽略
 // 而不是打断其他等待者（乱序/过期消息隔离）。
 func TestClientHubMultiWaiterUnmatchedIgnored(t *testing.T) {
