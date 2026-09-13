@@ -61,6 +61,12 @@ llm:
         cooldown_minutes: 60
         max_writes_per_run: 20
         transcript_char_limit: 16000
+    # 子 Agent 委派（delegate_agent）：表已在 react-base-mysql 建好；未配置默认关闭。
+    subagent:
+      enabled: true
+      max_parallel: 1        # 同一轮多个 delegate_agent 调用的并行上限（1=串行，需要稳定 HITL 保持 1）
+      default_max_steps: 8   # agent 未配置 max_steps 时子 run 的步数上限
+      max_depth: 2           # 委派嵌套深度上限（子 Agent 再委派），防递归失控
     # 时序事实图谱记忆（Graphiti，Layer2）：读写均走宿主机上的 Graphiti REST 服务。
     # group_id 由服务端按 caller(+user) 强制生成（不含连字符，FalkorDB 全文检索兼容）。
     graph_memory:
