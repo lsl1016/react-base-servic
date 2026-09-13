@@ -260,6 +260,7 @@ export function AssistantTurnBody(props: AssistantTurnBodyProps) {
           onNextButtonClick={props.onNextButtonClick}
           onPlanConfirm={props.onPlanConfirm}
           resolveTool={props.resolveTool}
+          onToolConfirmSubmit={props.onToolConfirmSubmit}
           onAskQuestionSubmit={props.onAskQuestionSubmit}
           activeAskQuestion={props.activeAskQuestion}
           plans={props.plans}

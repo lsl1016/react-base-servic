@@ -67,6 +67,7 @@ function WorkTools(props: {
               toolCall={toolCall}
               resolveTool={props.resolveTool}
               onAskQuestionSubmit={props.onAskQuestionSubmit}
+              onToolConfirmSubmit={props.onToolConfirmSubmit}
               activeAskQuestion={props.activeAskQuestion}
             />
           )}
@@ -186,6 +187,7 @@ export function WorkBlock(props: WorkBlockProps) {
                             toolUseIds={part().toolUseIds}
                             resolveTool={props.resolveTool}
                             onAskQuestionSubmit={props.onAskQuestionSubmit}
+                            onToolConfirmSubmit={props.onToolConfirmSubmit}
                             activeAskQuestion={props.activeAskQuestion}
                           />
                         )}
