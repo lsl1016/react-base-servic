@@ -46,11 +46,15 @@ type ReactRun struct {
 	TodoStateJSON           string `json:"todoStateJson" gorm:"column:todo_state_json;type:text"`
 	TotalInputTokens        int    `json:"totalInputTokens" gorm:"column:total_input_tokens;not null;default:0"`
 	TotalOutputTokens       int    `json:"totalOutputTokens" gorm:"column:total_output_tokens;not null;default:0"`
-	LastInputTokens         int    `json:"lastInputTokens" gorm:"column:last_input_tokens;not null;default:0"`
-	LastOutputTokens        int    `json:"lastOutputTokens" gorm:"column:last_output_tokens;not null;default:0"`
-	CacheReadTokens         int    `json:"cacheReadTokens" gorm:"column:cache_read_tokens;not null;default:0"`
-	CacheCreateTokens       int    `json:"cacheCreateTokens" gorm:"column:cache_create_tokens;not null;default:0"`
-	ErrorMessage            string `json:"errorMessage" gorm:"column:error_message;type:text"`
+	// DelegatedInput/OutputTokens 是本 run 委派子 Agent 的 token 消耗（递归口径），
+	// 由子 run 终态时原子累加（OH delegate:{id} 计量口径的等价物）。
+	DelegatedInputTokens  int    `json:"delegatedInputTokens" gorm:"column:delegated_input_tokens;not null;default:0"`
+	DelegatedOutputTokens int    `json:"delegatedOutputTokens" gorm:"column:delegated_output_tokens;not null;default:0"`
+	LastInputTokens       int    `json:"lastInputTokens" gorm:"column:last_input_tokens;not null;default:0"`
+	LastOutputTokens      int    `json:"lastOutputTokens" gorm:"column:last_output_tokens;not null;default:0"`
+	CacheReadTokens       int    `json:"cacheReadTokens" gorm:"column:cache_read_tokens;not null;default:0"`
+	CacheCreateTokens     int    `json:"cacheCreateTokens" gorm:"column:cache_create_tokens;not null;default:0"`
+	ErrorMessage          string `json:"errorMessage" gorm:"column:error_message;type:text"`
 	// ParentRunID 非空表示这是 delegate_agent 委派出的子 run，指向父 run；外层 run 为空。
 	ParentRunID string `json:"parentRunId" gorm:"column:parent_run_id;default:null"`
 	// AgentPath 是多 Agent 事件归属路径（如 main/ops-agent）；外层 run 为空（事件侧缺省 main）。
@@ -98,6 +102,24 @@ func UpdateReactRunByRunID(ctx *gin.Context, runID string, updates map[string]an
 	tx := helpers.MysqlClientLLM.Model(&ReactRun{}).WithContext(ctx).
 		Where("run_id = ?", runID).
 		Updates(updates)
+	if tx.Error != nil {
+		return components.ErrorDbUpdate.Wrap(tx.Error)
+	}
+	return nil
+}
+
+// AccumulateReactRunDelegatedTokens 把子 run 的 token 消耗原子累加进父 run 的 delegated 列：
+// SQL 自增表达式天然并发安全（并行委派的多个子 run 同时累加同一父行）。
+func AccumulateReactRunDelegatedTokens(ctx *gin.Context, parentRunID string, inputTokens, outputTokens int) error {
+	if inputTokens == 0 && outputTokens == 0 {
+		return nil
+	}
+	tx := helpers.MysqlClientLLM.Model(&ReactRun{}).WithContext(ctx).
+		Where("run_id = ?", parentRunID).
+		Updates(map[string]any{
+			"delegated_input_tokens":  gorm.Expr("delegated_input_tokens + ?", inputTokens),
+			"delegated_output_tokens": gorm.Expr("delegated_output_tokens + ?", outputTokens),
+		})
 	if tx.Error != nil {
 		return components.ErrorDbUpdate.Wrap(tx.Error)
 	}

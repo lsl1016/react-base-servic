@@ -26,6 +26,13 @@ var (
 		Help: "Total react runs by final status.",
 	}, []string{"status"})
 
+	// ReactDelegationsTotal 子 Agent 委派计数（agent_key × status：
+	// success/error/cancelled/no_response/agent_not_found/depth_limited），观测委派命中率与误配。
+	ReactDelegationsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "react_delegations_total",
+		Help: "Total sub-agent delegations by agent_key and outcome.",
+	}, []string{"agent_key", "status"})
+
 	// SessionsCreatedTotal 新建会话计数。
 	SessionsCreatedTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "react_sessions_created_total",

@@ -26,6 +26,7 @@ import (
 	"react-base-service/components"
 	"react-base-service/components/metrics"
 	"react-base-service/components/params"
+	"react-base-service/components/route"
 	"react-base-service/conf"
 	"react-base-service/helpers"
 	model "react-base-service/models/llm"
@@ -105,12 +106,16 @@ func (s *reactEngineState) executeDelegateAgent(call llm.ToolCall, step int) (st
 	}
 
 	cfg := conf.GetReactRuntimeConfig().SubAgent
-	agent, ok := s.findVisibleAgent(input.AgentKey)
-	if !ok {
-		return fmt.Sprintf("agent %s is not available, available agents: %s", input.AgentKey, strings.Join(s.visibleAgentKeys(), ", ")), true, nil
-	}
 	if s.depth+1 > cfg.MaxDepth {
+		metrics.ReactDelegationsTotal.WithLabelValues(input.AgentKey, "depth_limited").Inc()
 		return fmt.Sprintf("delegation depth limit reached (max_depth=%d), handle this task yourself instead of delegating", cfg.MaxDepth), true, nil
+	}
+	// 委派时实时解析 agent 定义：管理面板修改/新建的 agent 从下一次委派起立即生效
+	//（delegate_agent 工具描述清单仍是 run 装配快照，随下一个外层 run 刷新）。
+	agent, ok := s.resolveAgentForKey(input.AgentKey)
+	if !ok {
+		metrics.ReactDelegationsTotal.WithLabelValues(input.AgentKey, "agent_not_found").Inc()
+		return fmt.Sprintf("agent %s is not available, available agents: %s", input.AgentKey, strings.Join(s.visibleAgentKeys(), ", ")), true, nil
 	}
 
 	subReq, subRunID, err := s.buildSubAgentRuntimeRequest(agent, input.Task, input.Expect)
@@ -131,19 +136,26 @@ func (s *reactEngineState) executeDelegateAgent(call llm.ToolCall, step int) (st
 	zlog.Infof(s.ctx, "[React.Delegate] 子Agent run启动: parentRun=%s, subRun=%s, agentKey=%s, agentPath=%s", s.runID, subRunID, agent.AgentKey, subReq.agentPath)
 
 	loopErr := executeReactLoop(s.ctx, subCtx, subReq, subRunID, s.sessionID, subEmitter, s.readClient)
+	// 委派计量（OH delegate:{id} 口径的等价物）：子 run 终态后把其 token 消耗（含其自身委派的
+	// 间接消耗，递归口径）原子累加进父 run 的 delegated 列，父级报表/预算口径由此闭环。
+	s.accumulateDelegatedTokens(subRunID, agent.AgentKey)
 	if loopErr != nil {
 		s.finalizeSubAgentRunError(subRunID, loopErr)
 		if IsReactRunCancelled(loopErr) || IsReactClientDisconnected(loopErr) || errors.Is(loopErr, context.DeadlineExceeded) {
+			metrics.ReactDelegationsTotal.WithLabelValues(agent.AgentKey, "cancelled").Inc()
 			return "", false, loopErr
 		}
 		// 子 run 失败（模型故障、超步数上限等）：软错误回给父模型，可自行调整后重试或换路。
+		metrics.ReactDelegationsTotal.WithLabelValues(agent.AgentKey, "error").Inc()
 		return fmt.Sprintf("子 Agent %s 执行失败: %s", agent.AgentKey, loopErr.Error()), true, nil
 	}
 
 	finalResponse, err := subAgentFinalResponse(s.ctx, subRunID)
 	if err != nil {
+		metrics.ReactDelegationsTotal.WithLabelValues(agent.AgentKey, "no_response").Inc()
 		return fmt.Sprintf("子 Agent %s 未产生最终回复: %v", agent.AgentKey, err), true, nil
 	}
+	metrics.ReactDelegationsTotal.WithLabelValues(agent.AgentKey, "success").Inc()
 	zlog.Infof(s.ctx, "[React.Delegate] 子Agent run完成: parentRun=%s, subRun=%s, agentKey=%s", s.runID, subRunID, agent.AgentKey)
 	resultPayload, _ := json.Marshal(map[string]string{
 		"agentKey":      agent.AgentKey,
@@ -211,6 +223,7 @@ func (s *reactEngineState) buildSubAgentRuntimeRequest(agent model.Agent, task, 
 	base.agents = s.req.agents // 嵌套委派可见同一清单（是否装配 delegate_agent 由 MaxDepth 限制）
 	base.agentPath = delegateAgentPath(s.agentPath, agent.AgentKey)
 	base.depth = s.depth + 1
+	base.clientHub = s.req.clientHub // 子 run 的交互等待经同一上行消息分发器认领
 
 	subRunID := generateRunID()
 	base.modelUserMessageRef = reactMessageRef{RunID: subRunID, MessageID: generateMessageID(), Seq: 1}
@@ -300,6 +313,43 @@ func (s *reactEngineState) findVisibleAgent(agentKey string) (model.Agent, bool)
 		}
 	}
 	return model.Agent{}, false
+}
+
+// resolveAgentForKey 实时查库解析 agent 定义（caller 作用域 + default 合并语义，与快照同源逻辑）：
+// 委派执行取最新配置，管理面板变更从下一次委派起生效。
+func (s *reactEngineState) resolveAgentForKey(agentKey string) (model.Agent, bool) {
+	agents, err := model.FindAgentsByCallerAndRoutes(s.ctx, s.req.payload.CallerKey, route.BuildRoutePrefixes(s.req.payload.RouteValues))
+	if err != nil {
+		zlog.Warnf(s.ctx, "[React.Delegate] 实时解析 agent 失败(回退 run 快照): runId=%s, agentKey=%s, err=%v", s.runID, agentKey, err)
+		return s.findVisibleAgent(agentKey)
+	}
+	for _, agent := range agents {
+		if agent.AgentKey == agentKey {
+			return agent, true
+		}
+	}
+	return model.Agent{}, false
+}
+
+// accumulateDelegatedTokens 把子 run 的 token 消耗（自身 total + 其 delegated 递归口径）
+// 原子累加进父 run 行；并行委派下多个子 run 并发累加同一父行，SQL 自增天然安全。
+// 同时累加父 state 的内存镜像，供 done 事件的 delegated 口径展示。
+func (s *reactEngineState) accumulateDelegatedTokens(subRunID, agentKey string) {
+	subRun, err := model.GetReactRunByRunID(s.ctx, subRunID)
+	if err != nil || subRun == nil {
+		zlog.Warnf(s.ctx, "[React.Delegate] 读取子 run 计量失败(忽略): parentRun=%s, subRun=%s, err=%v", s.runID, subRunID, err)
+		return
+	}
+	inputTokens := subRun.TotalInputTokens + subRun.DelegatedInputTokens
+	outputTokens := subRun.TotalOutputTokens + subRun.DelegatedOutputTokens
+	if inputTokens == 0 && outputTokens == 0 {
+		return
+	}
+	if err := model.AccumulateReactRunDelegatedTokens(s.ctx, s.runID, inputTokens, outputTokens); err != nil {
+		zlog.Warnf(s.ctx, "[React.Delegate] 委派计量累加失败(忽略): parentRun=%s, subRun=%s, err=%v", s.runID, subRunID, err)
+	}
+	s.delegatedInputTokens.Add(int64(inputTokens))
+	s.delegatedOutputTokens.Add(int64(outputTokens))
 }
 
 func (s *reactEngineState) visibleAgentKeys() []string {

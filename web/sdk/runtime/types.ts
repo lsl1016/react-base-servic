@@ -92,6 +92,8 @@ export interface ToolCallState {
   planExecutionId?: string;
   /** Plan 内工具所属 StepAttempt。 */
   stepAttemptId?: string;
+  /** 多 Agent 归属路径（子 Agent 产出该工具调用时形如 main/ops-agent）；外层 run 为空 */
+  agentPath?: string;
 }
 
 /**
@@ -109,6 +111,8 @@ export interface Step {
   index: number;
   /** 所属推理轮次 ID */
   runId: string;
+  /** 多 Agent 归属：子 Agent 产出的步骤形如 main/ops-agent（按 (runId,index) 独立归组） */
+  agentPath?: string;
   /** 角色：user=用户输入，assistant=模型回复，compact=上下文压缩分隔标记 */
   role: 'user' | 'assistant' | 'compact';
   /** 模型思考过程的文本（由 thought_delta 流式拼接，thought_end 后为最终值） */

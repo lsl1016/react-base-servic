@@ -74,7 +74,10 @@ type runtimeRequest struct {
 	// delegate_agent 子 run 形如 main/ops-agent。
 	agentPath string
 	// depth 是委派嵌套深度：外层 run 为 0，每委派一层 +1；达到 subagent.max_depth 后不再装配 delegate_agent。
-	depth                  int
+	depth int
+	// clientHub 是外层 run 级的前端上行消息分发器：并行委派的多个等待者按 toolUseId
+	// 各自认领消息（见 client_hub.go）；外层 run 创建，子 run 继承同一实例。
+	clientHub              *clientMessageHub
 	routeValuesJSON        string
 	historyMessages        []llm.ChatMessage
 	historyMessageRefs     [][]reactMessageRef
@@ -230,6 +233,9 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 	if req.callerRuntimeContext.SessionID == "" {
 		req.callerRuntimeContext.SessionID = sessionID
 	}
+	// 外层 run 创建上行消息分发器：并行委派时多个等待者（父/子 run 的 ask_question、
+	// client tool 回填）按 toolUseId 认领消息；单等待者行为与历史直读一致。
+	req.clientHub = newClientMessageHub(readClient)
 	runCtx, cancel := context.WithCancelCause(components.ContextWithCallerRuntime(parent, req.callerRuntimeContext))
 	registerReactRunCancel(runID, cancel)
 	metrics.RunsActive.Inc()

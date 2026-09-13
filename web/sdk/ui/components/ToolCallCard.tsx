@@ -101,6 +101,11 @@ export function ToolCallCard(props: ToolCallCardProps) {
         <div class="agent-ui-tool-info">
           {statusIcon()}
           <span class="agent-ui-tool-name">{toolDisplayName()}</span>
+          <Show when={props.toolCall.agentPath}>
+            <span class="agent-ui-agent-badge" title={props.toolCall.agentPath}>
+              {props.toolCall.agentPath}
+            </span>
+          </Show>
           <span class="agent-ui-tool-status">{statusText()}</span>
         </div>
         <Show when={props.toolCall.durationMs}>

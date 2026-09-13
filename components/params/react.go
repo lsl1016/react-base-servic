@@ -167,6 +167,10 @@ type ReactDonePayload struct {
 	ContextUsedTokens int    `json:"contextUsedTokens"`
 	MaxContextTokens  int    `json:"maxContextTokens"`
 	TerminationReason string `json:"terminationReason,omitempty"`
+	// DelegatedInput/OutputTokens 是本 run 委派子 Agent 的 token 消耗（递归口径，
+	// 含子 run 再委派的开销）；未发生委派时为 0/省略。
+	DelegatedInputTokens  int `json:"delegatedInputTokens,omitempty"`
+	DelegatedOutputTokens int `json:"delegatedOutputTokens,omitempty"`
 }
 
 type ReactErrorPayload struct {

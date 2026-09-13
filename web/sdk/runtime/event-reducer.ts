@@ -830,7 +830,8 @@ export class EventReducer {
     if (event.sessionId) {
       this.state.sessionId = event.sessionId;
     }
-    if (event.runId) {
+    // 子 Agent run（agentPath 非空）不移动外层 run 游标：外层状态判定始终以父 run 事件为准。
+    if (event.runId && !event.agentPath) {
       this.state.currentRunId = event.runId;
     }
 
@@ -843,6 +844,7 @@ export class EventReducer {
           const step: Step = {
             index: this.state.steps.length,
             runId: event.runId ?? this.state.currentRunId ?? '',
+            agentPath: event.agentPath,
             role: 'user',
             thoughts: '',
             content: p.userPrompt,
@@ -858,12 +860,12 @@ export class EventReducer {
       }
 
       case 'thought_start':
-        this.ensureStep(stepIndex, event.runId!);
+        this.ensureStep(stepIndex, event.runId!, event.agentPath);
         this.state.status = 'running';
         break;
 
       case 'thought_delta': {
-        const step = this.ensureStep(stepIndex, event.runId);
+        const step = this.ensureStep(stepIndex, event.runId, event.agentPath);
         const p = event.payload as unknown as ThoughtDeltaPayload;
         if (p?.contentDelta) {
           step.thoughts += p.contentDelta;
@@ -872,7 +874,7 @@ export class EventReducer {
       }
 
       case 'thought_end': {
-        const step = this.ensureStep(stepIndex, event.runId);
+        const step = this.ensureStep(stepIndex, event.runId, event.agentPath);
         const p = event.payload as unknown as ThoughtEndPayload;
         if (p?.content != null) {
           step.thoughts = p.content;
@@ -885,14 +887,14 @@ export class EventReducer {
       }
 
       case 'content_start': {
-        const step = this.ensureStep(stepIndex, event.runId!);
+        const step = this.ensureStep(stepIndex, event.runId!, event.agentPath);
         step.contentStarted = true;
         this.state.status = 'running';
         break;
       }
 
       case 'content_delta': {
-        const step = this.ensureStep(stepIndex, event.runId);
+        const step = this.ensureStep(stepIndex, event.runId, event.agentPath);
         const p = event.payload as unknown as ContentDeltaPayload;
         if (p?.contentDelta) {
           step.content += p.contentDelta;
@@ -901,7 +903,7 @@ export class EventReducer {
       }
 
       case 'content_end': {
-        const step = this.ensureStep(stepIndex, event.runId);
+        const step = this.ensureStep(stepIndex, event.runId, event.agentPath);
         const p = event.payload as unknown as ContentEndPayload;
         if (p?.content != null) {
           step.content = p.content;
@@ -914,7 +916,7 @@ export class EventReducer {
       }
 
       case 'tool_use_start': {
-        const step = this.ensureStep(stepIndex, event.runId!);
+        const step = this.ensureStep(stepIndex, event.runId!, event.agentPath);
         const p = event.payload as unknown as ToolUseStartPayload;
         const tc: ToolCallState = {
           toolUseId: p.toolUseId,
@@ -926,6 +928,7 @@ export class EventReducer {
           executedBy: p.executedBy ?? 'server',
           afterContent: step.contentStarted,
           planConfirmationStatus: p.toolName === 'create_plan' ? 'pending' : undefined,
+          agentPath: event.agentPath,
         };
         step.toolCalls.push(tc);
         this.toolCallIndex.set(p.toolUseId, {
@@ -966,7 +969,7 @@ export class EventReducer {
           this.state.status = 'waiting_client_tool';
           break;
         }
-        const step = this.ensureStep(stepIndex, event.runId!);
+        const step = this.ensureStep(stepIndex, event.runId!, event.agentPath);
         const tc: ToolCallState = {
           toolUseId: p.toolUseId,
           toolName: p.toolName,
@@ -1092,7 +1095,7 @@ export class EventReducer {
         const p = event.payload as unknown as ModelFallbackPayload;
         this.state.lastModelFallback = p ? { ...p } : null;
         if (p?.resetCurrentOutput) {
-          const step = this.ensureStep(stepIndex, event.runId);
+          const step = this.ensureStep(stepIndex, event.runId, event.agentPath);
           step.thoughts = '';
           step.content = '';
           step.thoughtComplete = false;
@@ -1105,6 +1108,19 @@ export class EventReducer {
 
       case 'done': {
         const p = event.payload as unknown as DonePayload;
+        if (event.agentPath) {
+          // 子 Agent run 终态：只收敛该子 run 自己的工具卡片；token 并入会话总量，
+          // 不改变外层 status / lastRunStats / runCount（外层 run 仍会继续产生事件）。
+          this.settlePendingToolCalls(event.runId);
+          if (p) {
+            this.state.usage = {
+              ...this.state.usage,
+              totalInputTokens: this.state.usage.totalInputTokens + readNumber(p.inputTokens, 0),
+              totalOutputTokens: this.state.usage.totalOutputTokens + readNumber(p.outputTokens, 0),
+            };
+          }
+          break;
+        }
         this.settlePendingToolCalls();
         this.state.status = 'done';
         if (p) {
@@ -1129,6 +1145,14 @@ export class EventReducer {
 
       case 'error': {
         const p = event.payload as unknown as ErrorPayload;
+        if (event.agentPath) {
+          // 子 Agent run 失败：收敛其卡片并记日志，不打断外层 run 状态。
+          this.settlePendingToolCalls(event.runId);
+          if (p?.errMsg) {
+            console.warn('[AgentClient] sub-agent run failed:', p.errMsg);
+          }
+          break;
+        }
         this.settlePendingToolCalls();
         this.state.status = 'error';
         this.applyContextOnlyStats(p?.contextUsedTokens, p?.maxContextTokens);
@@ -1143,6 +1167,10 @@ export class EventReducer {
 
       case 'cancelled': {
         const p = event.payload as unknown as CancelledPayload;
+        if (event.agentPath) {
+          this.settlePendingToolCalls(event.runId);
+          break;
+        }
         this.state.status = 'cancelled';
         this.settlePendingToolCalls();
         this.applyContextOnlyStats(p?.contextUsedTokens, p?.maxContextTokens);
@@ -1225,7 +1253,7 @@ export class EventReducer {
    * 后端的 stepIndex 在每个 run 内独立递增，因此不能当成全局展示顺序。
    * 消息展示顺序依赖追加顺序，避免新一轮回复覆盖或插到旧消息前面。
    */
-  private ensureStep(index: number | undefined, runId?: string): Step {
+  private ensureStep(index: number | undefined, runId?: string, agentPath?: string): Step {
     const idx = index ?? this.state.steps.length;
     const normalizedRunId = runId ?? this.state.currentRunId ?? '';
     let step = this.state.steps.find((s) => {
@@ -1236,6 +1264,7 @@ export class EventReducer {
       step = {
         index: idx,
         runId: normalizedRunId,
+        agentPath,
         role: 'assistant',
         thoughts: '',
         content: '',
@@ -1249,8 +1278,11 @@ export class EventReducer {
     return step;
   }
 
-  private settlePendingToolCalls(): void {
+  private settlePendingToolCalls(runId?: string): void {
+    // runId 非空时只收敛该子 run 自己的步骤/工具（子 Agent 终态不得误收敛外层在途卡片，
+    // 如正在执行的 delegate_agent 调用卡片）。
     for (const step of this.state.steps) {
+      if (runId && step.runId !== runId) continue;
       for (const toolCall of step.toolCalls) {
         if (toolCall.status === 'running' || toolCall.status === 'waiting') {
           toolCall.status = 'cancelled';
@@ -1260,6 +1292,7 @@ export class EventReducer {
     for (const plan of Object.values(this.state.plans)) {
       for (const attempt of Object.values(plan.attempts)) {
         for (const step of attempt.steps) {
+          if (runId && step.runId !== runId) continue;
           for (const toolCall of step.toolCalls) {
             if (toolCall.status === 'running' || toolCall.status === 'waiting') {
               toolCall.status = 'cancelled';

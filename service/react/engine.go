@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	llm "react-base-service/api/llm"
@@ -52,9 +53,12 @@ type reactEngineState struct {
 	failoverModels []reactModelTarget
 	emitter        *runEventEmitter
 	readClient     ClientMessageReader
-	messages       []llm.ChatMessage
-	messageRefs    [][]reactMessageRef
-	activeTools    map[string]model.Tool
+	// clientHub 是外层 run 级上行消息分发器（req.clientHub 注入）；并行委派的多个等待者
+	// 经它按 toolUseId 认领消息，交互等待函数统一走 hub 而不是直读 readClient。
+	clientHub   *clientMessageHub
+	messages    []llm.ChatMessage
+	messageRefs [][]reactMessageRef
+	activeTools map[string]model.Tool
 	// prevToolDefFingerprint 记录上一个 run 已加载工具的 definition 指纹（callName → 指纹），
 	// 用于区分"工具从未加载"和"工具定义已变更需要重新 get_tool"两种未命中场景。
 	prevToolDefFingerprint map[string]string
@@ -80,6 +84,10 @@ type reactEngineState struct {
 	// agentPath 是当前 run 的多 Agent 事件归属路径（外层 run 为空）；depth 是委派嵌套深度。
 	agentPath string
 	depth     int
+	// delegatedInput/OutputTokens 是委派子 run 消耗的内存镜像（DB 为权威口径），
+	// 并行委派并发累加用原子操作，done 事件透出给前端。
+	delegatedInputTokens  atomic.Int64
+	delegatedOutputTokens atomic.Int64
 }
 
 type reactClientToolCall struct {
@@ -133,6 +141,7 @@ func executeReactLoop(ctx *gin.Context, runCtx context.Context, req *runtimeRequ
 		todoStateJSON:          req.todoStateJSON,
 		agentPath:              req.agentPath,
 		depth:                  req.depth,
+		clientHub:              req.clientHub,
 	}
 	// 恢复上一个 run 已加载且定义未变化的 Business Tool，避免模型按历史上下文直接 execute_tool 时空转报错。
 	if err := state.restoreActiveToolsFromPreviousRun(); err != nil {
@@ -535,8 +544,8 @@ consume:
 // executeToolCalls 按模型返回顺序执行同一步工具，保证外部副作用和结果回填顺序稳定。
 // delegate_agent 调用之间可并行（agent 委派无副作用），受 subagent.max_parallel 限制；
 // 其余工具保持串行；并行度 1（默认）时与历史完全串行等价。
-// 注意：并行委派的多个子 run 若同时进入 ask_question/client tool 等待，会竞争同一条上行
-// 消息通道（并行 HITL 不受支持）；需要稳定 HITL 的场景应保持 max_parallel=1。
+// 并行委派的多个子 run 同时等待用户输入（ask_question/client tool）时，上行消息经
+// clientHub 按 toolUseId 路由到各自的等待者（并行 HITL，见 client_hub.go）。
 func (s *reactEngineState) executeToolCalls(calls []llm.ToolCall, step int) ([]llm.ToolResultContent, error) {
 	if s.delegateParallelism(len(calls)) <= 1 {
 		return s.executeToolCallsSerial(calls, step)
@@ -738,13 +747,15 @@ func (s *reactEngineState) finish(content, terminationReason string) error {
 		})
 	}
 	return s.emitter.Emit(EventDone, params.ReactDonePayload{
-		InputTokens:       s.inputTokens,
-		OutputTokens:      s.outputTokens,
-		CacheReadTokens:   s.cacheReadTokens,
-		CacheCreateTokens: s.cacheCreateTokens,
-		ContextUsedTokens: s.contextUsedTokens(content),
-		MaxContextTokens:  conf.GetReactRuntimeConfig().ContextCompact.TokenTrigger,
-		TerminationReason: terminationReason,
+		InputTokens:           s.inputTokens,
+		OutputTokens:          s.outputTokens,
+		CacheReadTokens:       s.cacheReadTokens,
+		CacheCreateTokens:     s.cacheCreateTokens,
+		ContextUsedTokens:     s.contextUsedTokens(content),
+		MaxContextTokens:      conf.GetReactRuntimeConfig().ContextCompact.TokenTrigger,
+		TerminationReason:     terminationReason,
+		DelegatedInputTokens:  int(s.delegatedInputTokens.Load()),
+		DelegatedOutputTokens: int(s.delegatedOutputTokens.Load()),
 	})
 }
 

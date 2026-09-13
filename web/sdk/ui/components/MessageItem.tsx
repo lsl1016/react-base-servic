@@ -66,7 +66,20 @@ export function MessageItem(props: MessageItemProps) {
   // 助手消息（含错误）
   return (
     <>
-      <div class="agent-ui-message-assistant" classList={{ 'agent-ui-message-error': props.step.isError }}>
+      <Show when={props.step.agentPath}>
+        <div class="agent-ui-subagent-divider">
+          <span class="agent-ui-agent-badge" title={props.step.agentPath}>
+            {props.step.agentPath}
+          </span>
+        </div>
+      </Show>
+      <div
+        class="agent-ui-message-assistant"
+        classList={{
+          'agent-ui-message-error': props.step.isError,
+          'agent-ui-message-subagent': !!props.step.agentPath,
+        }}
+      >
         <div class="agent-ui-message-body">
           {/* 思考过程 */}
           <Show when={props.step.thoughts}>

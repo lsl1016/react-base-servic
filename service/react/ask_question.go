@@ -219,41 +219,39 @@ func (s *reactEngineState) executeAskQuestion(call llm.ToolCall, step int) (llm.
 	return llm.ToolResultContent{ToolUseID: call.ID, Content: normalized.LLMContent(), IsError: normalized.IsError}, nil
 }
 
-// waitAskQuestionAnswer 在 run 进入 waiting_client_message 后阻塞读取前端上行 tool_use_answer，
-// 按 toolUseId 匹配后把通用信封中的 content 解析为 ask_question 的回答结构；协议规则与 waitClientToolOutput 保持一致。
+// waitAskQuestionAnswer 在 run 进入 waiting_client_message 后经 clientHub 等待前端上行 tool_use_answer，
+// 按 toolUseId 认领消息后把通用信封中的 content 解析为 ask_question 的回答结构；
+// 并行委派的其它等待者（父/兄弟子 run）互不干扰，cancel 广播语义保持一致。
 func (s *reactEngineState) waitAskQuestionAnswer(toolUseID string) (askQuestionAnswer, error) {
-	if s.readClient == nil {
-		return askQuestionAnswer{}, fmt.Errorf("ask_question requires websocket reader")
+	msg, err := s.waitClientMessage(func(m params.ReactWSMessage) bool {
+		return toolUseAnswerID(m) == toolUseID
+	})
+	if err != nil {
+		if !IsReactClientDisconnected(err) {
+			_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"state": model.ReactRunStateExpired})
+		}
+		return askQuestionAnswer{}, err
 	}
-	for {
-		msg, err := s.readClient()
-		if err != nil {
-			if !IsReactClientDisconnected(err) {
-				_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"state": model.ReactRunStateExpired})
-			}
+	switch msg.Type {
+	case EventCancel:
+		return askQuestionAnswer{}, ErrReactRunCancelled
+	case EventToolUseAnswer:
+		var envelope toolUseAnswerPayload
+		if err := json.Unmarshal(msg.Payload, &envelope); err != nil {
 			return askQuestionAnswer{}, err
 		}
-		switch msg.Type {
-		case EventCancel:
-			return askQuestionAnswer{}, ErrReactRunCancelled
-		case EventToolUseAnswer:
-			var envelope toolUseAnswerPayload
-			if err := json.Unmarshal(msg.Payload, &envelope); err != nil {
-				return askQuestionAnswer{}, err
-			}
-			if envelope.ToolUseID != toolUseID {
-				return askQuestionAnswer{}, fmt.Errorf("tool_use_answer missing: %s", toolUseID)
-			}
-			var answer askQuestionAnswer
-			if len(envelope.Content) > 0 {
-				if err := json.Unmarshal(envelope.Content, &answer); err != nil {
-					return askQuestionAnswer{}, fmt.Errorf("tool_use_answer content invalid: %v", err)
-				}
-			}
-			return answer, nil
-		default:
-			return askQuestionAnswer{}, fmt.Errorf("unexpected message while waiting tool_use_answer: %s", msg.Type)
+		if envelope.ToolUseID != toolUseID {
+			return askQuestionAnswer{}, fmt.Errorf("tool_use_answer missing: %s", toolUseID)
 		}
+		var answer askQuestionAnswer
+		if len(envelope.Content) > 0 {
+			if err := json.Unmarshal(envelope.Content, &answer); err != nil {
+				return askQuestionAnswer{}, fmt.Errorf("tool_use_answer content invalid: %v", err)
+			}
+		}
+		return answer, nil
+	default:
+		return askQuestionAnswer{}, fmt.Errorf("unexpected message while waiting tool_use_answer: %s", msg.Type)
 	}
 }
 

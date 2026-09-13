@@ -86,8 +86,26 @@ frontmatter 缺省字段回退请求体（caller_key/routeValues 必须至少一
 - 会话摘要（last_run_id/last_message）只由外层 run 收敛时更新。
 - 子 run 取消时父 `Cancel` 通过 context cause 级联（`ErrReactRunCancelled` 语义保持）。
 
-## 7. 已知边界（按方案预留）
+## 7. P1 边界收尾（并行 HITL / 计量 / 观测 / 实时生效 / 前端）
 
-- 并行委派（max_parallel>1）时多个子 run 若同时进入 ask_question/client tool 等待，会竞争同一条上行消息通道（并行 HITL 暂不支持）；需要稳定 HITL 的场景保持 max_parallel=1。
-- 子 run token 独立按 run 落库；父 run 汇总 `delegated` 口径的报表聚合待后续（数据已具备：按 parent_run_id 关联查询）。
+P1 自身遗留边界已按参考项目机制收齐：
+
+| 能力 | 实现 | 参照 |
+|---|---|---|
+| 并行 HITL | `service/react/client_hub.go`：外层 run 级上行消息分发器。pump 是唯一 readClient 消费方，`tool_use_answer`/`client_tool_use_end` 按 toolUseId 投递给声明关心它的等待者；cancel 广播级联取消；可寻址消息未匹配时进有界待领缓冲（答复先于等待者注册到达的竞态）；非可寻址消息在单等待者时保持历史严格语义。`waitAskQuestionAnswer`/`waitClientToolOutput(s)` 统一走 hub，`max_parallel>1` 时多个子 run 并行等待用户输入互不干扰 | adk-go openLongRunningCallIDs 按 ID 分发 + "一轮输入回答多个等待者"；eino Address 寻址的简化（toolUseId 全局唯一） |
+| 委派计量 | `tblLlmReactRun` 增 `delegated_input/output_tokens`；子 run 终态时把其消耗（含递归口径）SQL 原子累加进父 run 行（`AccumulateReactRunDelegatedTokens`，并行委派并发安全）；done 事件透出 `delegatedInputTokens/delegatedOutputTokens` | OpenHands `usage_to_metrics["delegate:{id}"]` 回写父级 + combined 汇总进预算 |
+| 委派观测 | `react_delegations_total{agent_key,status}`：success/error/cancelled/no_response/agent_not_found/depth_limited，配合既有工具耗时直方图观测委派命中率与误配 | 方案风险表"委派命中率进 /metrics" |
+| agent 实时生效 | 委派执行时实时查库解析 agent 定义（`resolveAgentForKey`，caller+default 作用域合并，失败回退 run 快照）；管理面板变更从下一次委派起生效 | OpenHands 文件型定义 + 基座多租户管理面板的折中 |
+| SDK/前端 agentPath | 协议 `ReactEvent.agentPath`；reducer 按 (runId,index) 独立归组子 run 步骤；子 run 终态只收敛自己的卡片、不改变外层 status/lastRunStats（否则会误收敛父的 delegate 卡片）；工具卡片与消息块渲染 agentPath 徽章 + 子 Agent 缩进；dist 已重新构建 | adk-go branch 隔离 + "不给等待者看别人的答复" |
+
+e2e 验证（`REACT_DELEGATE_E2E=1`，真实 MySQL + glm-4.6 + mcp-server 网关）：
+`TestDelegateParallelHitlE2E`（两个子 Agent 并行 ask_question、答案按 toolUseId 路由无交叉、父 run delegated>0）、
+`TestDelegateDepthLimitE2E`（max_depth=1 下子 run 不装配 delegate_agent、无孙 run、自动降级自行完成）。
+
+## 8. 已知边界（按方案预留）
+
+- 并行 HITL 的待领缓冲有界（16 条，丢最旧）：前端对同一 toolUseId 重复作答等异常洪峰下，
+  最早的未认领答复可能被丢弃，等待方最终由 cancel/断连收敛。
+- 委派清单（delegate_agent 工具描述）仍是外层 run 装配快照：新 agent 在下一个外层 run
+  才对主 LLM 可见（委派执行时已实时解析定义，见第 7 节）。
 - P2（代码 Workspace、AgentSkills 文件标准、危险操作确认）与 P3（Bundle 插件、编排容器）按方案后续推进。

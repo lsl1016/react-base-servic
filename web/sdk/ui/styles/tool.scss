@@ -87,6 +87,36 @@
   @include agent-ui-flex-center;
 }
 
+// 子 Agent 归属徽章：多 Agent 委派时标注事件/工具产出者（agentPath，如 main/ops-agent）
+.agent-ui-agent-badge {
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: $agent-ui-message-meta;
+  background: var(--agent-ui-border-color, rgba(127, 127, 127, 0.15));
+  border: 1px solid var(--agent-ui-border-color, rgba(127, 127, 127, 0.25));
+  font-family: var(--agent-ui-font-mono, monospace);
+}
+
+// 子 Agent 消息块分隔行（步骤顶部归属标注）与缩进
+.agent-ui-subagent-divider {
+  display: flex;
+  align-items: center;
+  margin: 6px 0 2px;
+}
+
+.agent-ui-message-subagent {
+  margin-left: 14px;
+  border-left: 2px solid var(--agent-ui-border-color, rgba(127, 127, 127, 0.25));
+  padding-left: 10px;
+}
+
 .agent-ui-tool-status-running {
   animation: agent-ui-pulse 1.5s ease-in-out infinite;
   @include agent-ui-flex-center;

@@ -127,82 +127,91 @@ func (s *reactEngineState) clientToolEmitter() *runEventEmitter {
 }
 
 // waitClientToolOutput 等待单个 client tool 回填；当前主要由兼容单工具路径使用。
+// 经 clientHub 认领消息（按 toolUseId 匹配），并行委派的其它等待者互不干扰。
 func (s *reactEngineState) waitClientToolOutput(toolUseID string) (clientToolOutput, int64, error) {
-	if s.readClient == nil {
-		return clientToolOutput{}, 0, fmt.Errorf("client tool requires websocket reader")
-	}
 	start := time.Now()
-	for {
-		msg, err := s.readClient()
-		if err != nil {
-			if !IsReactClientDisconnected(err) {
-				_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"state": model.ReactRunStateExpired})
-			}
+	msg, err := s.waitClientMessage(func(m params.ReactWSMessage) bool {
+		return m.Type == EventClientToolUseEnd && clientToolUseEndIDs(m)[toolUseID]
+	})
+	if err != nil {
+		if !IsReactClientDisconnected(err) {
+			_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"state": model.ReactRunStateExpired})
+		}
+		return clientToolOutput{}, 0, err
+	}
+	switch msg.Type {
+	case EventCancel:
+		return clientToolOutput{}, 0, ErrReactRunCancelled
+	case EventClientToolUseEnd:
+		var payload struct {
+			ToolOutputs []clientToolOutput `json:"toolOutputs"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			return clientToolOutput{}, 0, err
 		}
-		switch msg.Type {
-		case EventCancel:
-			return clientToolOutput{}, 0, ErrReactRunCancelled
-		case EventClientToolUseEnd:
-			var payload struct {
-				ToolOutputs []clientToolOutput `json:"toolOutputs"`
+		for _, output := range payload.ToolOutputs {
+			if output.ToolUseID == toolUseID {
+				return output, time.Since(start).Milliseconds(), nil
 			}
-			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-				return clientToolOutput{}, 0, err
-			}
-			for _, output := range payload.ToolOutputs {
-				if output.ToolUseID == toolUseID {
-					return output, time.Since(start).Milliseconds(), nil
-				}
-			}
-			return clientToolOutput{}, 0, fmt.Errorf("client tool output missing: %s", toolUseID)
-		default:
-			return clientToolOutput{}, 0, fmt.Errorf("unexpected message while waiting client tool: %s", msg.Type)
 		}
+		return clientToolOutput{}, 0, fmt.Errorf("client tool output missing: %s", toolUseID)
+	default:
+		return clientToolOutput{}, 0, fmt.Errorf("unexpected message while waiting client tool: %s", msg.Type)
 	}
 }
 
-// waitClientToolOutputs 在 run 进入 waiting_client_message 后阻塞读取前端回填，直到所有 pending tool 都有结果。
+// waitClientToolOutputs 在 run 进入 waiting_client_message 后阻塞等待前端回填，直到所有 pending tool 都有结果。
+// 经 clientHub 认领消息：一条 client_tool_use_end 命中任一 pending toolUseId 即投递给本等待者，
+// 再由其校验齐全性（一次消息需包含全部 pending 结果，保持历史语义）。
 func (s *reactEngineState) waitClientToolOutputs(callByID map[string]reactClientToolCall) (map[string]clientToolOutput, int64, error) {
-	if s.readClient == nil {
-		return nil, 0, fmt.Errorf("client tool requires websocket reader")
+	pendingIDs := make(map[string]bool, len(callByID))
+	for toolUseID := range callByID {
+		pendingIDs[toolUseID] = true
 	}
 	start := time.Now()
-	for {
-		msg, err := s.readClient()
-		if err != nil {
-			if !IsReactClientDisconnected(err) {
-				_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"state": model.ReactRunStateExpired})
+	msg, err := s.waitClientMessage(func(m params.ReactWSMessage) bool {
+		if m.Type != EventClientToolUseEnd {
+			return false
+		}
+		for toolUseID := range clientToolUseEndIDs(m) {
+			if pendingIDs[toolUseID] {
+				return true
 			}
+		}
+		return false
+	})
+	if err != nil {
+		if !IsReactClientDisconnected(err) {
+			_ = model.UpdateReactRunByRunID(s.ctx, s.runID, map[string]interface{}{"state": model.ReactRunStateExpired})
+		}
+		return nil, 0, err
+	}
+	switch msg.Type {
+	case EventCancel:
+		return nil, 0, ErrReactRunCancelled
+	case EventClientToolUseEnd:
+		var payload struct {
+			ToolOutputs []clientToolOutput `json:"toolOutputs"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 			return nil, 0, err
 		}
-		switch msg.Type {
-		case EventCancel:
-			return nil, 0, ErrReactRunCancelled
-		case EventClientToolUseEnd:
-			var payload struct {
-				ToolOutputs []clientToolOutput `json:"toolOutputs"`
-			}
-			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-				return nil, 0, err
-			}
 
-			// 只接受当前 pending 集合中的 toolUseID，额外结果会被忽略，缺失结果会整体失败。
-			outputs := make(map[string]clientToolOutput, len(payload.ToolOutputs))
-			for _, output := range payload.ToolOutputs {
-				if _, ok := callByID[output.ToolUseID]; ok {
-					outputs[output.ToolUseID] = output
-				}
+		// 只接受当前 pending 集合中的 toolUseID，额外结果会被忽略，缺失结果会整体失败。
+		outputs := make(map[string]clientToolOutput, len(payload.ToolOutputs))
+		for _, output := range payload.ToolOutputs {
+			if _, ok := callByID[output.ToolUseID]; ok {
+				outputs[output.ToolUseID] = output
 			}
-			for toolUseID := range callByID {
-				if _, ok := outputs[toolUseID]; !ok {
-					return nil, 0, fmt.Errorf("client tool output missing: %s", toolUseID)
-				}
-			}
-			return outputs, time.Since(start).Milliseconds(), nil
-		default:
-			return nil, 0, fmt.Errorf("unexpected message while waiting client tool: %s", msg.Type)
 		}
+		for toolUseID := range callByID {
+			if _, ok := outputs[toolUseID]; !ok {
+				return nil, 0, fmt.Errorf("client tool output missing: %s", toolUseID)
+			}
+		}
+		return outputs, time.Since(start).Milliseconds(), nil
+	default:
+		return nil, 0, fmt.Errorf("unexpected message while waiting client tool: %s", msg.Type)
 	}
 }
 

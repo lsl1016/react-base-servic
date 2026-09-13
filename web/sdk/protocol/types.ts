@@ -342,6 +342,8 @@ export interface ReactEvent {
   sessionId?: string;
   /** ReAct 步骤索引（从 0 开始），同一步骤内的 thought/content/tool 共享同一个 index */
   stepIndex?: number;
+  /** 多 Agent 事件归属路径（如 main/ops-agent）；外层 run 省略该字段（按 main 渲染） */
+  agentPath?: string;
   /** 事件载荷，按 type 不同对应不同的 Payload 类型 */
   payload?: Record<string, unknown>;
 }
