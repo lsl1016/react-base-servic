@@ -107,18 +107,30 @@ func (r *Repo) ReadFile(rel string, start, end int) (map[string]any, error) {
 
 // SearchCode 在仓库内做不区分大小写的包含匹配，返回有界候选。
 func (r *Repo) SearchCode(query, rel string, maxResults int) ([]map[string]any, error) {
-	base, err := r.safeExisting(rel)
-	if err != nil {
-		return nil, err
-	}
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
 	if maxResults <= 0 || maxResults > 200 {
 		maxResults = 50
 	}
+	needle := strings.ToLower(query)
 	results := []map[string]any{}
-	err = filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
+	err := r.searchLines(rel, func(relPath string, line int, text string) bool {
+		if strings.Contains(strings.ToLower(text), needle) {
+			results = append(results, map[string]any{"path": relPath, "line": line, "content": strings.TrimSpace(text)})
+		}
+		return len(results) < maxResults
+	})
+	return results, err
+}
+
+// searchLines 逐行扫描 rel 子树内不超限的文件，每行回调一次；回调返回 false 即终止。
+func (r *Repo) searchLines(rel string, fn func(relPath string, line int, text string) bool) error {
+	base, err := r.safeExisting(rel)
+	if err != nil {
+		return err
+	}
+	return filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -127,9 +139,6 @@ func (r *Repo) SearchCode(query, rel string, maxResults int) ([]map[string]any, 
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		if len(results) >= maxResults {
-			return fs.SkipAll
 		}
 		info, err := d.Info()
 		if err != nil || info.Size() > 1<<20 {
@@ -143,23 +152,17 @@ func (r *Repo) SearchCode(query, rel string, maxResults int) ([]map[string]any, 
 		scanner := bufio.NewScanner(f)
 		scanner.Buffer(make([]byte, 64*1024), 2<<20)
 		line := 0
-		for scanner.Scan() {
+		for scanner.Scan() && fn(filepath.ToSlash(mustRel(r.root, path)), line+1, scanner.Text()) {
 			line++
-			text := scanner.Text()
-			if strings.Contains(strings.ToLower(text), strings.ToLower(query)) {
-				relPath, _ := filepath.Rel(r.root, path)
-				results = append(results, map[string]any{"path": filepath.ToSlash(relPath), "line": line, "content": strings.TrimSpace(text)})
-				if len(results) >= maxResults {
-					break
-				}
-			}
+		}
+		if scanner.Err() != nil {
+			return nil
 		}
 		return nil
 	})
-	return results, err
 }
 
-// RepoMap 返回有界的仓库文件清单，供深读前总览。
+// RepoMap 返回有界的仓库地图：.go 文件带顶层声明摘要（Aider 风格），其余为路径清单。
 func (r *Repo) RepoMap(maxFiles int) ([]string, error) {
 	if maxFiles <= 0 || maxFiles > 2000 {
 		maxFiles = 300
@@ -170,7 +173,8 @@ func (r *Repo) RepoMap(maxFiles int) ([]string, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if path != r.root && ignored(d.Name()) {
+			// 地图预算优先给源码：隐藏目录（含 .github）整棵跳过
+			if path != r.root && (ignored(d.Name()) || strings.HasPrefix(d.Name(), ".")) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -178,17 +182,21 @@ func (r *Repo) RepoMap(maxFiles int) ([]string, error) {
 		if len(out) >= maxFiles {
 			return fs.SkipAll
 		}
-		rel, _ := filepath.Rel(r.root, path)
-		out = append(out, filepath.ToSlash(rel))
+		// 地图预算优先给源码：隐藏目录/文件（含 .github）与 _test.go 不占条目
+		if strings.HasPrefix(d.Name(), ".") || strings.HasSuffix(d.Name(), "_test.go") {
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".go") {
+			if line, ok := GoRepoMapLine(r.root, path, 12); ok {
+				out = append(out, line)
+				return nil
+			}
+		}
+		out = append(out, filepath.ToSlash(mustRel(r.root, path)))
 		return nil
 	})
 	sort.Strings(out)
 	return out, err
-}
-
-// FindSymbol 按词法匹配符号候选（非语义/LSP 引用，结果仅供筛查）。
-func (r *Repo) FindSymbol(name string, maxResults int) ([]map[string]any, error) {
-	return r.SearchCode(name, ".", maxResults)
 }
 
 // safeExisting 把相对路径解析到仓库根内的绝对路径，拒绝穿越与符号链接逃逸。
