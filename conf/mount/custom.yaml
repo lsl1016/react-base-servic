@@ -96,6 +96,16 @@ mcp:
       kind: repo
       env:
         REPO_ROOT: 'C:/Users/keke/Desktop/xm/react-base-service'
+    # mcp-server 网关（本地进程经 127.0.0.1 直连；容器版在 deploy/compose/conf/mount 配
+    # host.docker.internal——两份 yaml 各写各的 endpoint，工具同步进同一注册表，执行时
+    # 各进程用自己的客户端。不用 DB 注册表是为了避开 host.docker.internal 在宿主机
+    # hosts 漂移导致的不可达）
+    - name: mcpgw
+      kind: http
+      endpoint: 'http://127.0.0.1:18080/api/mcp'
+      headers:
+        Authorization: 'Bearer demo-app-key:demo-app-secret-please-rotate'
+      timeout_ms: 30000
   # 本机开发环境放行环回/私网 MCP 端点（如 127.0.0.1 演示 MCP 服务）；生产环境必须删除此开关
   allow_private_endpoint: true
     # - name: remote
