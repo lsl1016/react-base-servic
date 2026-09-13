@@ -44,7 +44,7 @@ jobs:
             --exclude=./deploy/compose/conf/mount \
             .
 
-          scp -i /tmp/deploy_key -o StrictHostKeyEncoding=no -o StrictHostKeyChecking=no \
+          scp -i /tmp/deploy_key -o StrictHostKeyChecking=no \
             /tmp/src.tar.gz "$ECS_USER@$ECS_HOST:/tmp/src.tar.gz"
           rm /tmp/deploy_key
 
