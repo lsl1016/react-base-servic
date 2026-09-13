@@ -3,6 +3,8 @@ package react
 import (
 	"strings"
 	"testing"
+
+	"react-base-service/conf"
 )
 
 func TestParseMcpServersJSON(t *testing.T) {
@@ -104,5 +106,48 @@ func TestMarshalMcpHeaders(t *testing.T) {
 	got, err := marshalMcpHeaders(map[string]string{"Authorization": "Bearer k"})
 	if err != nil || !strings.Contains(got, "Authorization") {
 		t.Fatalf("headers serialize failed: %q %v", got, err)
+	}
+}
+
+func TestMcpYamlServerViewScaffold(t *testing.T) {
+	original := conf.CustomConf.MCP
+	defer func() { conf.CustomConf.MCP = original }()
+	conf.CustomConf.MCP = conf.MCPConfig{
+		CallerKey: "demo-app",
+		Servers: []conf.MCPServerConf{
+			{Name: "mcpgw", Kind: "http", Endpoint: "http://127.0.0.1:18080/api/mcp", Headers: map[string]string{"Authorization": "Bearer k:s"}, TimeoutMs: 30000},
+			{Name: "repo", Kind: "repo", Env: map[string]string{"REPO_ROOT": "/tmp/repo"}},
+		},
+	}
+
+	cfg, ok := findMcpYamlServer("mcpgw")
+	if !ok {
+		t.Fatal("findMcpYamlServer 应命中 mcpgw")
+	}
+	view := mcpYamlServerViewScaffold(cfg)
+	if view.ServerID != "yaml:mcpgw" {
+		t.Fatalf("serverId 应为 yaml:mcpgw: %q", view.ServerID)
+	}
+	if view.Source != mcpServerSourceYaml {
+		t.Fatalf("source 应为 yaml: %q", view.Source)
+	}
+	if view.Endpoint != "http://127.0.0.1:18080/api/mcp" {
+		t.Fatalf("endpoint 应取配置文件值: %q", view.Endpoint)
+	}
+	if view.Status != 1 || !view.HasHeaders || view.TimeoutMs != 30000 {
+		t.Fatalf("静态字段不符合配置: %+v", view)
+	}
+	if len(view.BoundCallers) != 1 || view.BoundCallers[0] != "demo-app" {
+		t.Fatalf("BoundCallers 应为 mcp.caller_key: %v", view.BoundCallers)
+	}
+	if view.Running {
+		t.Fatal("无运行时客户端时 Running 应为 false")
+	}
+
+	if _, ok := findMcpYamlServer("not-exist"); ok {
+		t.Fatal("未配置名称不应命中")
+	}
+	if mcpYamlServerID("repo") != "yaml:repo" {
+		t.Fatalf("合成 ID 不符合预期: %q", mcpYamlServerID("repo"))
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"react-base-service/components"
+	"react-base-service/conf"
 	"react-base-service/golib/zlog"
 	"react-base-service/helpers"
 	model "react-base-service/models/llm"
@@ -30,6 +31,16 @@ const (
 	mcpCheckConnected    = "connected"
 	mcpCheckDisconnected = "disconnected"
 	mcpCheckUnknown      = "unknown"
+
+	// mcpYamlServerIDPrefix 是 yaml 静态声明服务器在管理面的合成 ID 前缀；
+	// 该前缀的 serverId 不对应 DB 记录，update/delete/connect 会拒绝并提示改配置文件。
+	mcpYamlServerIDPrefix = "yaml:"
+)
+
+// 连接来源：registry=DB 注册表（管理接口可改）；yaml=conf/mount/custom.yaml 静态声明（改文件后重启生效）。
+const (
+	mcpServerSourceRegistry = "registry"
+	mcpServerSourceYaml     = "yaml"
 )
 
 type mcpListRequest struct {
@@ -85,10 +96,13 @@ type mcpServerView struct {
 	ToolCount        int    `json:"toolCount"`
 	// BoundCallers 是该连接工具同步到的全部 caller（属主在首位；其余为绑定 caller）。
 	BoundCallers []string `json:"boundCallers"`
-	CreatedBy    string   `json:"createdBy"`
-	UpdatedBy    string   `json:"updatedBy"`
-	CreatedAt    string   `json:"createdAt"`
-	UpdatedAt    string   `json:"updatedAt"`
+	// Source 标识连接来源：registry=DB 注册表（管理接口可改）；yaml=conf/mount/custom.yaml
+	// 静态声明（endpoint 以配置文件为准，本机与容器版各配各的，改文件后重启生效）。
+	Source    string `json:"source"`
+	CreatedBy string `json:"createdBy"`
+	UpdatedBy string `json:"updatedBy"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
 	// Tools 仅 detail 返回（含 name/description/status）。
 	Tools []mcpToolView `json:"tools,omitempty"`
 }
@@ -167,6 +181,7 @@ func mcpServerToView(server model.McpServer, withTools bool) mcpServerView {
 		LastCheckAt:      formatTimePtr(server.LastCheckAt),
 		ToolCount:        len(tools),
 		BoundCallers:     mcpConnectionCallers(&gin.Context{}, &server),
+		Source:           mcpServerSourceRegistry,
 		CreatedBy:        server.CreatedBy,
 		UpdatedBy:        server.UpdatedBy,
 		CreatedAt:        server.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -184,6 +199,56 @@ func mcpServerToView(server model.McpServer, withTools bool) mcpServerView {
 		}
 	}
 	return view
+}
+
+// mcpYamlServerID 生成 yaml 静态服务器在管理面的合成 serverId。
+func mcpYamlServerID(name string) string {
+	return mcpYamlServerIDPrefix + name
+}
+
+// findMcpYamlServer 按 name 在 yaml 静态配置中定位一个服务器声明。
+func findMcpYamlServer(name string) (conf.MCPServerConf, bool) {
+	for _, server := range conf.CustomConf.MCP.Servers {
+		if server.Name == name {
+			return server, true
+		}
+	}
+	return conf.MCPServerConf{}, false
+}
+
+// mcpYamlServerViewScaffold 渲染 yaml 静态服务器的视图骨架（不查 DB，可单测）：
+// endpoint/启停以配置文件为准（运行时客户端即由它拉起），运行状态取全局 Manager。
+func mcpYamlServerViewScaffold(cfg conf.MCPServerConf) mcpServerView {
+	return mcpServerView{
+		ServerID:     mcpYamlServerID(cfg.Name),
+		Name:         cfg.Name,
+		Kind:         cfg.Kind,
+		Endpoint:     cfg.Endpoint,
+		Description:  "静态配置（conf/mount/custom.yaml mcp.servers；容器版在 deploy/compose/conf/mount）",
+		TimeoutMs:    cfg.TimeoutMs,
+		Status:       1,
+		HasHeaders:   len(cfg.Headers) > 0,
+		Running:      mcpclient.GetServer(cfg.Name) != nil,
+		BoundCallers: []string{conf.CustomConf.MCP.CallerKey},
+		Source:       mcpServerSourceYaml,
+	}
+}
+
+// fillMcpYamlServerView 补齐需要查库的字段（工具数与工具清单）。
+func fillMcpYamlServerView(ctx *gin.Context, view *mcpServerView, withTools bool) {
+	tools, _ := model.ListMCPServerTools(ctx, view.Name)
+	view.ToolCount = len(tools)
+	if withTools {
+		view.Tools = make([]mcpToolView, 0, len(tools))
+		for _, tool := range tools {
+			view.Tools = append(view.Tools, mcpToolView{
+				ToolID:      tool.ToolID,
+				Name:        tool.Name,
+				Description: tool.Description,
+				Status:      tool.Status,
+			})
+		}
+	}
 }
 
 // ListMcpServers 列出当前 caller 下的全部 MCP 连接（含工具数与运行状态）。
@@ -215,6 +280,15 @@ func ListMcpServers(ctx *gin.Context) {
 	for _, server := range servers {
 		views = append(views, mcpServerToView(server, false))
 	}
+	// yaml 静态声明的服务器一并展示（source=yaml）：endpoint 以配置文件为准，
+	// 与 DB 记录（source=registry）同名并存时两条独立可见，避免运行时状态被停用行误导。
+	if conf.CustomConf.MCP.CallerKey == callerKey {
+		for _, serverCfg := range conf.CustomConf.MCP.Servers {
+			view := mcpYamlServerViewScaffold(serverCfg)
+			fillMcpYamlServerView(ctx, &view, false)
+			views = append(views, view)
+		}
+	}
 	components.RenderJsonSucc(ctx, views)
 }
 
@@ -229,6 +303,19 @@ func GetMcpServerDetail(ctx *gin.Context) {
 	var req mcpScopeRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		components.RenderJsonFail(ctx, components.ParamInvalidf("请求体解析失败: %s", err.Error()))
+		return
+	}
+	// yaml 静态服务器：serverId 为合成 ID（yaml:<name>），配置与 headers 以 yaml 为准。
+	if strings.HasPrefix(strings.TrimSpace(req.ServerID), mcpYamlServerIDPrefix) {
+		name := strings.TrimPrefix(strings.TrimSpace(req.ServerID), mcpYamlServerIDPrefix)
+		serverCfg, ok := findMcpYamlServer(name)
+		if !ok || conf.CustomConf.MCP.CallerKey != strings.TrimSpace(req.CallerKey) {
+			components.RenderJsonFail(ctx, components.ParamInvalidf("连接不存在: %s", req.ServerID))
+			return
+		}
+		view := mcpYamlServerViewScaffold(serverCfg)
+		fillMcpYamlServerView(ctx, &view, true)
+		components.RenderJsonSucc(ctx, gin.H{"server": view, "headers": serverCfg.Headers})
 		return
 	}
 	server, ok := loadMcpServer(ctx, req.CallerKey, req.ServerID)
@@ -271,6 +358,14 @@ func CreateMcpServer(ctx *gin.Context) {
 	if err != nil {
 		components.RenderJsonFail(ctx, components.ParamInvalidf("%s", err.Error()))
 		return
+	}
+	// 与 yaml 静态服务器同名会被 DB 版客户端覆盖（EnsureServer 同名替换），直接拒绝。
+	for _, draft := range drafts {
+		if _, exists := findMcpYamlServer(draft.Name); exists {
+			components.RenderJsonFail(ctx, components.ParamInvalidf(
+				"名称 %s 已由静态配置声明（conf/mount/custom.yaml mcp.servers），请改名或修改配置文件", draft.Name))
+			return
+		}
 	}
 	if err := bindMcpCreateCallers(ctx, callerKey, drafts, req); err != nil {
 		components.RenderJsonFail(ctx, err)
@@ -566,6 +661,11 @@ func loadMcpServer(ctx *gin.Context, callerKey, serverID string) (*model.McpServ
 	serverID = strings.TrimSpace(serverID)
 	if callerKey == "" || serverID == "" {
 		components.RenderJsonFail(ctx, components.ParamInvalidf("callerKey 与 serverId 不能为空"))
+		return nil, false
+	}
+	if strings.HasPrefix(serverID, mcpYamlServerIDPrefix) {
+		components.RenderJsonFail(ctx, components.ParamInvalidf(
+			"该连接由静态配置声明（conf/mount/custom.yaml mcp.servers；容器版在 deploy/compose/conf/mount），请修改配置文件后重启服务"))
 		return nil, false
 	}
 	server, err := model.GetMcpServerByServerID(ctx, serverID)
