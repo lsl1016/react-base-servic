@@ -1,9 +1,9 @@
 # 存储资源连接配置
-# 本机开发连 react-base-mysql 容器（docker-compose MYSQL_HOST_PORT=3327 映射；
+# 本机开发连 react-base-mysql 容器（端口由仓库根 .env 的 MYSQL_HOST_PORT 固化；
 # compose 内部署时容器网地址在 deploy/compose/conf/mount 单独配置）
 mysql:
   llm:
-    addr: '127.0.0.1:3327'
+    addr: '127.0.0.1:3317'
     connMaxLifeTime: 3600s
     connTimeOut: 1500ms
     database: llm
@@ -18,7 +18,8 @@ mysql:
 
 redis:
   demo:
-    addr: '127.0.0.1:6379'
+    # react-base-redis 容器宿主机映射（docker-compose REDIS_HOST_PORT=16379）
+    addr: '127.0.0.1:16379'
     connTimeOut: 1200ms
     idleTimeout: 5m
     maxActive: 100

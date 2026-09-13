@@ -34,6 +34,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: react-base-redis
+    # 宿主机端口映射供本地开发（go run）直连；容器内服务仍走内网 DNS redis:6379
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -44,6 +47,9 @@ services:
     build:
       context: ./sandbox
     container_name: react-base-sandbox
+    # 宿主机端口映射供本地开发（go run）的 python_exec 调用
+    ports:
+      - "${SANDBOX_HOST_PORT:-18190}:8190"
     # 强隔离：非 root + 只读根文件系统 + tmpfs 工作区 + 资源限额
     read_only: true
     tmpfs:
