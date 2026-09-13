@@ -30,6 +30,7 @@ import (
 	"react-base-service/conf"
 	"react-base-service/helpers"
 	model "react-base-service/models/llm"
+	"react-base-service/service/workspace"
 
 	"github.com/gin-gonic/gin"
 	"react-base-service/golib/zlog"
@@ -130,6 +131,8 @@ func (s *reactEngineState) executeDelegateAgent(call llm.ToolCall, step int) (st
 		cancel(nil)
 		unregisterReactRunCancel(subRunID)
 		metrics.RunsActive.Dec()
+		// 子 run 的工作区随子 run 终态释放（幂等；未分配为空操作）。
+		workspace.Default().ReleaseRun(s.ctx, subRunID)
 	}()
 
 	subEmitter := &runEventEmitter{runID: subRunID, sessionID: s.sessionID, agentPath: subReq.agentPath, write: s.emitter.write}

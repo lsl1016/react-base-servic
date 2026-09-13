@@ -37,6 +37,8 @@ const (
 	metaToolInspectAttachment = "inspect_attachment"
 	// metaToolCreatePlan 提交分步执行计划，等待用户在前端确认后执行（第一期：确认交互闭环）。
 	metaToolCreatePlan = "create_plan"
+	// metaToolLoadRuntimeCode 加载服务线上代码到本 run 专属工作区并挂载只读检索工具（P2-1）。
+	metaToolLoadRuntimeCode = "load_runtime_code"
 	// metaToolDelegateAgent 把子任务委派给注册表中的专家子 Agent（隔离子 run 执行，结果回填父循环）。
 	// 描述按 caller 可见 agent 清单动态渲染，主 LLM 由此"发现"子代理（OH TaskToolSet 模式）。
 	metaToolDelegateAgent = "delegate_agent"
@@ -52,7 +54,7 @@ const (
 // isInternalMetaTool 判断工具名是否属于 Runtime 内置 Meta Tool，内置工具不走外部工具注册表。
 func isInternalMetaTool(name string) bool {
 	switch name {
-	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolDelegateAgent, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite, metaToolGraphMemorySearch, metaToolGraphMemoryWrite:
+	case metaToolListTools, metaToolGetTool, metaToolExecuteTool, metaToolListSkills, metaToolGetSkill, metaToolReadToolResult, metaToolInspectData, metaToolPythonExec, metaToolTodoWrite, metaToolAskQuestion, metaToolDisplayFiles, metaToolResolveAsyncTask, metaToolGetAsyncTask, metaToolReadAttachment, metaToolInspectAttachment, metaToolCreatePlan, metaToolDelegateAgent, metaToolLoadRuntimeCode, metaToolMemoryList, metaToolMemoryRead, metaToolMemoryWrite, metaToolGraphMemorySearch, metaToolGraphMemoryWrite:
 		return true
 	default:
 		return false
@@ -81,6 +83,10 @@ func internalMetaToolDefinitions() []llm.ToolDefinition {
 	}
 	if conf.CustomConf.LLM.React.AllowPlanEnabled() {
 		definitions = append(definitions, createPlanToolDefinition())
+	}
+	// workspace.enabled=true 时注册 load_runtime_code（P2-1 代码工作区入口）。
+	if conf.CustomConf.LLM.React.Workspace.WorkspaceEnabled() {
+		definitions = append(definitions, loadRuntimeCodeDefinition())
 	}
 	// memory.enabled=true 时注册长期记忆三工具（list/read/write），关闭时模型不可见。
 	if conf.CustomConf.LLM.React.Memory.MemoryEnabled() {
@@ -359,6 +365,8 @@ func (s *reactEngineState) executeInternalToolContent(call llm.ToolCall, step in
 		return noToolMeta(executeCreatePlan(s.sessionID, s.runID, call.Input))
 	case metaToolDelegateAgent:
 		return noToolMeta(s.executeDelegateAgent(call, step))
+	case metaToolLoadRuntimeCode:
+		return noToolMeta(s.executeLoadRuntimeCode(call.Input))
 	case metaToolResolveAsyncTask:
 		return noToolMeta(s.resolveAsyncTask(call.Input))
 	case metaToolGetAsyncTask:

@@ -19,6 +19,9 @@ type ExecutionProfile struct {
 	// AllowSubagent 控制 delegate_agent（子 Agent 委派）工具；外层 run 跟随 subagent.enabled 配置，
 	// reflection 等受限执行域恒关闭。
 	AllowSubagent bool
+	// AllowWorkspace 控制 load_runtime_code（P2-1 代码工作区入口）；外层/子 run 跟随
+	// workspace.enabled 配置，reflection 等受限执行域恒关闭。
+	AllowWorkspace bool
 	// AllowAnalysisTools 控制 read_tool_result/inspect_data/python_exec 等分析类内置工具；
 	// 主对话默认开启，reflection 等受限执行域关闭。
 	AllowAnalysisTools      bool
@@ -38,6 +41,7 @@ func outerExecutionProfile() ExecutionProfile {
 		AllowMemory:             conf.CustomConf.LLM.React.Memory.MemoryEnabled(),
 		AllowGraphMemory:        conf.CustomConf.LLM.React.GraphMemory.GraphMemoryEnabled(),
 		AllowSubagent:           conf.CustomConf.LLM.React.SubAgent.SubAgentEnabled(),
+		AllowWorkspace:          conf.CustomConf.LLM.React.Workspace.WorkspaceEnabled(),
 		AllowAnalysisTools:      true,
 		InjectAsyncTaskReminder: true,
 		RestoreOuterHistory:     true,

@@ -54,6 +54,9 @@ const (
 	defaultReactGraphMemoryInjectMaxFacts   = 8
 	defaultReactGraphMemoryInjectMaxChars   = 1200
 	defaultReactGraphMemoryInjectTimeoutMs  = 1500
+	defaultReactWorkspaceRootDir            = "./data/workspaces"
+	defaultReactWorkspaceMirrorDir          = "./data/repo-cache"
+	defaultReactWorkspaceGitTimeoutSec      = 180
 )
 
 // ReactRuntimeConfig ReAct 运行时配置，只承载线上需要按模型和成本调整的策略参数。
@@ -80,6 +83,44 @@ type ReactRuntimeConfig struct {
 	// GraphMemory 控制时序事实图谱记忆（Graphiti，Layer2 长期记忆）；未配置时默认关闭。
 	// 依赖外部 Graphiti REST 服务，设计见 docs/知识库与长期记忆集成改造方案.md §4。
 	GraphMemory ReactGraphMemoryConfig `yaml:"graph_memory"`
+	// Workspace 控制服务端代码工作区（P2-1）：服务代码解析 → bare mirror 缓存 →
+	// 每 run git worktree 隔离，并动态挂载只读 repo MCP 工具。
+	Workspace ReactWorkspaceConfig `yaml:"workspace"`
+}
+
+// ReactWorkspaceConfig 服务端代码工作区配置。
+type ReactWorkspaceConfig struct {
+	// Enabled 控制总开关；未配置默认 false（不注册 load_runtime_code，行为与历史一致）。
+	Enabled *bool `yaml:"enabled"`
+	// RootDir 是每 run worktree 的分配根目录。
+	RootDir string `yaml:"root_dir"`
+	// MirrorDir 是 bare mirror 缓存目录（共享对象库，全服务单副本）。
+	MirrorDir string `yaml:"mirror_dir"`
+	// GitTimeoutSec 是单次 git 子操作（clone/fetch/worktree）的超时秒数。
+	GitTimeoutSec int `yaml:"git_timeout_sec"`
+	// Resolvers 是静态服务解析表：service 名 → 仓库与各环境的 ref。
+	// P2 首版不接公司镜像中心，按此白名单解析；真实链路后续实现 RuntimeSourceResolver 接入。
+	Resolvers []ReactWorkspaceResolverConf `yaml:"resolvers"`
+}
+
+// ReactWorkspaceResolverConf 描述一个服务的代码来源。
+type ReactWorkspaceResolverConf struct {
+	// Service 是服务标识（load_runtime_code 入参），仅允许字母数字下划线中划线。
+	Service string `yaml:"service"`
+	// RepoURL 是 git 仓库地址（https/ssh/file 均可）。
+	RepoURL string `yaml:"repo_url"`
+	// Refs 是环境 → 分支/commit/tag 的映射；未命中的环境回退 DefaultRef。
+	Refs map[string]string `yaml:"refs"`
+	// DefaultRef 是缺省 ref（空时用 HEAD 即默认分支）。
+	DefaultRef string `yaml:"default_ref"`
+}
+
+// WorkspaceEnabled 解析 workspace.enabled：未配置默认 false。
+func (c ReactWorkspaceConfig) WorkspaceEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
 }
 
 // ReactSubAgentConfig 子 Agent 委派配置：主 Agent 经 delegate_agent 把子任务派给
@@ -499,6 +540,28 @@ func GetReactRuntimeConfig() ReactRuntimeConfig {
 		subAgent.MaxDepth = defaultReactSubAgentMaxDepth
 	}
 	cfg.SubAgent = subAgent
+
+	workspace := cfg.Workspace
+	if strings.TrimSpace(workspace.RootDir) == "" {
+		workspace.RootDir = defaultReactWorkspaceRootDir
+	}
+	if strings.TrimSpace(workspace.MirrorDir) == "" {
+		workspace.MirrorDir = defaultReactWorkspaceMirrorDir
+	}
+	if workspace.GitTimeoutSec <= 0 {
+		workspace.GitTimeoutSec = defaultReactWorkspaceGitTimeoutSec
+	}
+	resolvers := make([]ReactWorkspaceResolverConf, 0, len(workspace.Resolvers))
+	for _, item := range workspace.Resolvers {
+		item.Service = strings.TrimSpace(item.Service)
+		item.RepoURL = strings.TrimSpace(item.RepoURL)
+		if item.Service == "" || item.RepoURL == "" {
+			continue
+		}
+		resolvers = append(resolvers, item)
+	}
+	workspace.Resolvers = resolvers
+	cfg.Workspace = workspace
 
 	graphMemory := cfg.GraphMemory
 	if graphMemory.TimeoutMs <= 0 {

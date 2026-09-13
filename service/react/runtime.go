@@ -18,6 +18,7 @@ import (
 	apikeyService "react-base-service/service/apikey"
 	systempromptService "react-base-service/service/systemprompt"
 	toolService "react-base-service/service/tool"
+	"react-base-service/service/workspace"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -246,6 +247,8 @@ func run(ctx *gin.Context, parent context.Context, payload params.ReactRunPayloa
 		cancel(nil)
 		unregisterReactRunCancel(runID)
 		metrics.RunsActive.Dec()
+		// 释放本 run 分配的代码工作区（未分配时为空操作；workspace 未启用同理）。
+		workspace.Default().ReleaseRun(ctx, runID)
 	}()
 
 	emitter := &runEventEmitter{runID: runID, sessionID: sessionID, write: write}

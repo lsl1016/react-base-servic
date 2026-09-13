@@ -63,6 +63,19 @@ llm:
         cooldown_minutes: 60        # 同一 session 两次整理的最小间隔
         max_writes_per_run: 20      # 单次整理写操作上限（create/update/delete 合计）
         transcript_char_limit: 16000  # 注入给整理任务的被压缩原文转录字符上限
+    # 服务端代码工作区（P2-1）：线上服务代码 → bare mirror 缓存 → 每 run git worktree，
+    # 并动态挂载只读检索工具（ws_<service>_ 前缀）；未配置默认关闭。
+    workspace:
+      enabled: true
+      root_dir: './data/workspaces'      # 每 run worktree 分配根目录
+      mirror_dir: './data/repo-cache'    # bare mirror 单副本缓存（共享对象库）
+      git_timeout_sec: 180               # 单次 git 子操作超时
+      resolvers:                         # 静态服务解析白名单（真实链路后续接镜像中心）
+        - service: react-base-service
+          repo_url: 'C:/Users/keke/Desktop/xm/react-base-service'  # 本地路径（开发自测；生产换 https/ssh）
+          default_ref: main
+          refs:
+            prod: main
     # 子 Agent 委派（delegate_agent）：开启前需先执行 sql/init.sql 中 tblLlmAgent 建表；
     # 未配置默认关闭（不注册 delegate_agent、不解析 agent 资源，行为与历史版本一致）。
     subagent:
