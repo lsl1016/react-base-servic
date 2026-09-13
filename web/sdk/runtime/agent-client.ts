@@ -653,6 +653,16 @@ export class AgentClient {
         try {
           await this.syncSessionEvents(targetSession.sessionId);
           this.asyncTaskManager.setSession(targetSession.sessionId);
+          // 初始化回放用的是本地账本快照，服务端同步可能带来更新（含 agentPath 等
+          // 账本缓存形态曾缺失的字段）：空闲时用同步后的账本重放一次，保证首屏即最新。
+          if (!this.isRunInProgress() && this.reducer.getState().sessionId === targetSession.sessionId) {
+            const syncedEvents = await this.ledger.getEvents(targetSession.sessionId);
+            if (syncedEvents.length > 0) {
+              this.localLastSeq = 0;
+              this.localLastSeqByRunId.clear();
+              this.reducer.replayEvents(syncedEvents);
+            }
+          }
         } catch (err) {
           console.warn('[AgentClient] initial session events sync failed:', err);
         }

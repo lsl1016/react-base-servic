@@ -76,6 +76,8 @@ export interface HistoryEvent {
   sessionId?: string;
   /** ReAct 步骤索引 */
   stepIndex?: number;
+  /** 多 Agent 事件归属路径（如 main/geo-agent；外层事件缺省，回放/泳道视图依赖） */
+  agentPath?: string;
   /** 事件载荷 */
   payload?: Record<string, unknown>;
   /** 事件创建时间（服务端格式：2006-01-02 15:04:05） */

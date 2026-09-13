@@ -89,7 +89,7 @@ llm:
     # 未配置默认关闭（不注册 delegate_agent、不解析 agent 资源，行为与历史版本一致）。
     subagent:
       enabled: true
-      max_parallel: 1        # 同一轮多个 delegate_agent 调用的并行上限（一期保持串行）
+      max_parallel: 3        # 同一轮多个 delegate_agent 调用的并行上限（并行委派 + 泳道视图演示）
       default_max_steps: 8   # agent 未配置 max_steps 时子 run 的步数上限
       max_depth: 2           # 委派嵌套深度上限（子 Agent 再委派），防递归失控
 

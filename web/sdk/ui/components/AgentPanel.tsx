@@ -24,12 +24,14 @@ import { parseAgentInputText, serializeAgentInputParts } from "../editor/types";
 import type { AgentInputCommand, AgentInputValue, FillInputOptions, FillInputResult } from "../input-api";
 import type { AgentUIEvent, AgentUIEventHandler, NextButtonAction } from "../events";
 import { createAgentStore } from "../store";
+import { AgentLaneView } from "./AgentLaneView";
 import { AsyncTaskResults, type AsyncTaskNotice } from "./AsyncTaskResults";
 import { FeedbackArea } from "./FeedbackArea";
 import { InputArea } from "./InputArea";
 import { MessageList } from "./MessageList";
 import { PanelMessage } from "./PanelMessage";
 import { SessionList } from "./SessionList";
+import { groupStepsByAgentLane } from "./lanes";
 
 export type AgentStartBlockMessage =
   | string
@@ -149,6 +151,9 @@ export function AgentPanel(props: AgentPanelProps) {
   const [sessions, setSessions] = createSignal<SessionMeta[]>([]);
   const [panelMessage, setPanelMessage] = createSignal<string>();
   const [showSessionHistory, setShowSessionHistory] = createSignal(false);
+  // 多代理泳道视图（P3）：出现 ≥2 条泳道（并行委派）时可切换对话流 ↔ 泳道并排。
+  const [laneView, setLaneView] = createSignal(false);
+  const laneCount = createMemo(() => groupStepsByAgentLane(store.state.steps).length);
   const [asyncTasks, setAsyncTasks] = createSignal<AsyncTaskItem[]>([]);
   const [showAsyncTaskResults, setShowAsyncTaskResults] = createSignal(false);
   const [asyncTaskNotice, setAsyncTaskNotice] = createSignal<AsyncTaskNotice>();
@@ -583,6 +588,17 @@ export function AgentPanel(props: AgentPanelProps) {
         </div>
 
         <div class="agent-ui-panel-header-right">
+          {/* 多代理泳道视图切换（P3）：出现并行委派（≥2 条泳道）时可见 */}
+          <Show when={laneCount() > 1}>
+            <button
+              class="agent-ui-header-icon-btn"
+              classList={{ "agent-ui-header-icon-btn-active": laneView() }}
+              title={laneView() ? "切换回对话视图" : "切换到多代理泳道视图（各代理思考流并排）"}
+              onClick={() => setLaneView((visible) => !visible)}
+            >
+              <span class="agent-ui-lane-toggle-label">{laneView() ? "对话" : "泳道"}</span>
+            </button>
+          </Show>
           <Show when={showSessionControls()}>
             <button
               class="agent-ui-header-icon-btn"
@@ -655,8 +671,21 @@ export function AgentPanel(props: AgentPanelProps) {
       </div>
       {/* 主内容区域 */}
       <div class="agent-ui-panel-content">
-        {/* 聊天区域 */}
+        {/* 聊天区域：多代理泳道视图与对话视图按切换分流（同一份 steps，纯渲染差异） */}
         <div class="agent-ui-panel-chat">
+          <Show
+            when={!laneView()}
+            fallback={
+              <AgentLaneView
+                steps={store.state.steps}
+                isRunning={isRunning()}
+                resolveTool={(toolName, frontendHint) => props.client.getRegisteredTool(toolName, frontendHint)}
+                onAskQuestionSubmit={props.readOnly ? undefined : handleAskQuestionSubmit}
+                onToolConfirmSubmit={props.readOnly ? undefined : handleToolConfirmSubmit}
+                quickInsertItems={props.quickInsertItems}
+              />
+            }
+          >
           <MessageList
             steps={store.state.steps}
             sessionId={store.state.sessionId}
@@ -706,6 +735,7 @@ export function AgentPanel(props: AgentPanelProps) {
               feedbackType: 'problem',
             })}
           />
+          </Show>
         </div>
 
         {/* 历史会话浮层 */}

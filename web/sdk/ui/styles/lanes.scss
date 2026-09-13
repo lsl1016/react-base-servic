@@ -1,0 +1,94 @@
+// 多代理泳道视图（P3）：并行委派时按 agentPath 并列展示各代理的思考流与产出。
+@use 'variables' as *;
+@use 'mixins' as *;
+
+.agent-ui-lanes {
+  display: flex;
+  gap: 12px;
+  height: 100%;
+  overflow-x: auto;
+  padding: 12px;
+  align-items: stretch;
+}
+
+.agent-ui-lane {
+  flex: 1 1 0;
+  min-width: 260px;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--agent-ui-border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--agent-ui-surface, #fff);
+  overflow: hidden;
+
+  &.agent-ui-lane-active {
+    border-color: var(--agent-ui-primary, #3b82f6);
+    box-shadow: 0 0 0 1px var(--agent-ui-primary, #3b82f6);
+  }
+}
+
+.agent-ui-lane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--agent-ui-border, #e2e8f0);
+  background: var(--agent-ui-surface-muted, #f8fafc);
+  flex: none;
+}
+
+.agent-ui-lane-badge {
+  font-weight: 600;
+}
+
+.agent-ui-lane-live {
+  color: var(--agent-ui-primary, #3b82f6);
+  font-size: 12px;
+  animation: agent-ui-lane-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-ui-lane-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.agent-ui-lane-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--agent-ui-text-secondary, #64748b);
+}
+
+.agent-ui-lane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+// 泳道收到的任务（子代理的任务文本 / 主泳道的用户消息）
+.agent-ui-lane-task {
+  font-size: 13px;
+  color: var(--agent-ui-text-secondary, #64748b);
+  background: var(--agent-ui-surface-muted, #f1f5f9);
+  border-left: 3px solid var(--agent-ui-border-strong, #cbd5e1);
+  border-radius: 4px;
+  padding: 6px 10px;
+
+  .agent-ui-lane-task-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.agent-ui-lane-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-ui-lane-tool {
+  font-size: 13px;
+}

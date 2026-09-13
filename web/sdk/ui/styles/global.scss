@@ -21,6 +21,7 @@
 @use 'code-block';
 @use 'client-tool-editor';
 @use 'display-files';
+@use 'lanes';
 
 // Agent UI 容器基础样式
 .agent-ui {

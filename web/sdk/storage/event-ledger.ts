@@ -105,6 +105,9 @@ function toHistoryEvent(
     runId: event.runId,
     sessionId: event.sessionId ?? sessionId,
     stepIndex: event.stepIndex,
+    // 多 Agent 事件归属必须随事件持久化，否则本地 ledger 恢复的会话丢失
+    // agentPath 徽章与泳道分组（服务端 HTTP 历史带该字段，ledger 缓存形态曾漏掉）。
+    agentPath: source.agentPath,
     payload: event.payload,
     createdAt: source.createdAt,
   };
