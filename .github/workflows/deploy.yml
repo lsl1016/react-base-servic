@@ -46,7 +46,6 @@ jobs:
 
           scp -i /tmp/deploy_key -o StrictHostKeyChecking=no \
             /tmp/src.tar.gz "$ECS_USER@$ECS_HOST:/tmp/src.tar.gz"
-          rm /tmp/deploy_key
 
           $SSH "set -e
             mkdir -p $DEPLOY_DIR
@@ -55,3 +54,5 @@ jobs:
             rm -f /tmp/src.tar.gz
             docker compose up -d --build
             docker image prune -f"
+
+          rm -f /tmp/deploy_key
