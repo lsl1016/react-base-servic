@@ -103,6 +103,17 @@ func UpdateSkillBySkillID(ctx *gin.Context, skillID string, updates map[string]i
 	return nil
 }
 
+// UpdateSkillBySkillIDUnscoped 不带软删过滤更新（Bundle 卸载按快照恢复软删行用）。
+func UpdateSkillBySkillIDUnscoped(ctx *gin.Context, skillID string, updates map[string]interface{}) error {
+	tx := helpers.MysqlClientLLM.Unscoped().Model(&Skill{}).WithContext(ctx).
+		Where("skill_id = ?", skillID).
+		Updates(updates)
+	if tx.Error != nil {
+		return components.ErrorDbUpdate.Wrap(tx.Error)
+	}
+	return nil
+}
+
 func SoftDeleteSkillBySkillID(ctx *gin.Context, skillID string) error {
 	tx := helpers.MysqlClientLLM.WithContext(ctx).Where("skill_id = ?", skillID).Delete(&Skill{})
 	if tx.Error != nil {

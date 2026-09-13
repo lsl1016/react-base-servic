@@ -78,6 +78,10 @@ func InitLLMRouter(router *gin.RouterGroup) {
 		reactGroup.POST("/mcp/update", react.UpdateMcpServer)
 		reactGroup.POST("/mcp/delete", react.DeleteMcpServer)
 		reactGroup.POST("/mcp/connect", react.ConnectMcpServer)
+		// Agent Bundle 插件包管理（P3：安装展开写入注册表、卸载回滚，见 controllers/http/react/bundle.go）
+		reactGroup.POST("/bundle/install", react.InstallBundle)
+		reactGroup.POST("/bundle/uninstall", react.UninstallBundle)
+		reactGroup.POST("/bundle/list", react.ListBundles)
 		// 长期记忆管理面（P2：审计与管理面，见 controllers/http/react/memory.go；写路径与引擎 memory_write 工具共用写核心）
 		reactGroup.POST("/memory/list", react.ListMemories)
 		reactGroup.POST("/memory/create", react.CreateMemory)

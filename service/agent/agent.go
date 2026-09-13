@@ -99,28 +99,34 @@ func CreateAgent(ctx *gin.Context, req *params.CreateAgentReq, createdBy string)
 	return agent, nil
 }
 
+// agentDefinitionUpdates 是「用文件定义覆盖 agent 行」的字段集（revive 与 bundle upsert 共用）；
+// 不含 agent_id/caller_key（键位不可变）与 created_by（保留创建审计）。
+func agentDefinitionUpdates(req *params.CreateAgentReq, routeValues, toolsJSON, skillsJSON []byte, updatedBy string) map[string]interface{} {
+	status, _ := resolveAgentStatus(req.Status)
+	return map[string]interface{}{
+		"name":               req.Name,
+		"description":        req.Description,
+		"route_values":       string(routeValues),
+		"system_prompt":      req.SystemPrompt,
+		"model_key":          strings.TrimSpace(req.ModelKey),
+		"model_version":      strings.TrimSpace(req.ModelVersion),
+		"tools_json":         string(toolsJSON),
+		"skills_json":        string(skillsJSON),
+		"max_steps":          req.MaxSteps,
+		"max_tokens_per_run": req.MaxTokensPerRun,
+		"permission_mode":    normalizePermissionMode(req.PermissionMode),
+		"status":             status,
+		"updated_by":         updatedBy,
+	}
+}
+
 // reviveDeletedAgent 用本次定义覆盖软删行并恢复可见（清 deleted_at），沿用原 agent_id。
 func reviveDeletedAgent(ctx *gin.Context, deleted *model.Agent, req *params.CreateAgentReq, routeValues, toolsJSON, skillsJSON []byte, updatedBy string) (*model.Agent, error) {
-	status, err := resolveAgentStatus(req.Status)
-	if err != nil {
+	if _, err := resolveAgentStatus(req.Status); err != nil {
 		return nil, err
 	}
-	updates := map[string]interface{}{
-		"name":              req.Name,
-		"description":       req.Description,
-		"route_values":      string(routeValues),
-		"system_prompt":     req.SystemPrompt,
-		"model_key":         strings.TrimSpace(req.ModelKey),
-		"model_version":     strings.TrimSpace(req.ModelVersion),
-		"tools_json":        string(toolsJSON),
-		"skills_json":       string(skillsJSON),
-		"max_steps":         req.MaxSteps,
-		"max_tokens_per_run": req.MaxTokensPerRun,
-		"permission_mode":   normalizePermissionMode(req.PermissionMode),
-		"status":            status,
-		"updated_by":        updatedBy,
-		"deleted_at":        0,
-	}
+	updates := agentDefinitionUpdates(req, routeValues, toolsJSON, skillsJSON, updatedBy)
+	updates["deleted_at"] = 0
 	if err := model.UpdateAgentByAgentIDUnscoped(ctx, deleted.AgentID, updates); err != nil {
 		return nil, err
 	}
@@ -286,6 +292,67 @@ type agentMarkdownFrontmatter struct {
 // frontmatter 字段对应 CreateAgentReq（yaml 风格命名），正文（第二个 --- 之后）即 system_prompt；
 // frontmatter 中的 caller_key / route_values 缺省时取请求体字段。
 func ImportFromMarkdown(ctx *gin.Context, req *params.ImportAgentReq, createdBy string) (*model.Agent, error) {
+	createReq, err := buildAgentCreateReqFromMarkdown(req)
+	if err != nil {
+		return nil, err
+	}
+	return CreateAgent(ctx, createReq, createdBy)
+}
+
+// UpsertFromMarkdownForBundle 是 Bundle 安装用的同名覆盖导入（P3）：
+// 活跃同 caller+agent_key 行 → 覆盖定义字段（沿用 agent_id 与创建审计字段）；
+// 软删行 → 复活覆盖（CreateAgent 内建路径）；不存在 → 全量校验新建。
+// 返回覆盖前的整行快照 JSON（空串=本次新建），供 Bundle 卸载回滚。
+// 普通 /agent/import 语义不变（同名仍报 ErrorAgentDuplicate）。
+func UpsertFromMarkdownForBundle(ctx *gin.Context, req *params.ImportAgentReq, updatedBy string) (*model.Agent, string, error) {
+	createReq, err := buildAgentCreateReqFromMarkdown(req)
+	if err != nil {
+		return nil, "", err
+	}
+	if existing, err := model.GetAgentByCallerAndAgentKey(ctx, createReq.CallerKey, createReq.AgentKey); err != nil {
+		return nil, "", err
+	} else if existing != nil {
+		snapshot, _ := json.Marshal(existing)
+		rv := createReq.RouteValues
+		if rv == nil {
+			rv = []string{}
+		}
+		routeValues, _ := json.Marshal(rv)
+		toolsJSON, _ := json.Marshal(normalizeReferenceList(createReq.Tools))
+		skillsJSON, _ := json.Marshal(normalizeReferenceList(createReq.Skills))
+		if err := model.UpdateAgentByAgentID(ctx, existing.AgentID, agentDefinitionUpdates(createReq, routeValues, toolsJSON, skillsJSON, updatedBy)); err != nil {
+			return nil, "", err
+		}
+		updated, err := model.GetAgentByAgentID(ctx, existing.AgentID)
+		if err != nil {
+			return nil, "", err
+		}
+		if updated == nil {
+			return nil, "", components.ErrorAgentNotFound.Sprintf(existing.AgentID)
+		}
+		return updated, string(snapshot), nil
+	}
+	// 软删行占唯一键：CreateAgent 走复活；快照取软删行原值（含 deleted_at），卸载可还原为软删态。
+	if deleted, err := model.GetAgentByCallerAndAgentKeyUnscoped(ctx, createReq.CallerKey, createReq.AgentKey); err != nil {
+		return nil, "", err
+	} else if deleted != nil && deleted.DeletedAt != 0 {
+		snapshot, _ := json.Marshal(deleted)
+		agent, err := CreateAgent(ctx, createReq, updatedBy)
+		if err != nil {
+			return nil, "", err
+		}
+		return agent, string(snapshot), nil
+	}
+	agent, err := CreateAgent(ctx, createReq, updatedBy)
+	if err != nil {
+		return nil, "", err
+	}
+	return agent, "", nil
+}
+
+// buildAgentCreateReqFromMarkdown 解析「frontmatter + 正文」为 CreateAgentReq
+// （frontmatter 字段优先，caller_key/route_values/status 缺省回退请求体；正文即 system_prompt）。
+func buildAgentCreateReqFromMarkdown(req *params.ImportAgentReq) (*params.CreateAgentReq, error) {
 	frontmatter, body := splitAgentMarkdown(req.Markdown)
 	if strings.TrimSpace(frontmatter) == "" {
 		return nil, components.ErrorAgentImportInvalid.Sprintf("缺少 frontmatter（文件须以 --- 开头）")
@@ -331,7 +398,7 @@ func ImportFromMarkdown(ctx *gin.Context, req *params.ImportAgentReq, createdBy 
 	if createReq.AgentKey == "" && createReq.Name != "" {
 		createReq.AgentKey = sanitizeAgentKeyFromName(meta.Name)
 	}
-	return CreateAgent(ctx, createReq, createdBy)
+	return createReq, nil
 }
 
 // splitAgentMarkdown 拆分 frontmatter 与正文：文件以 --- 行开头，到下一个 --- 行结束。

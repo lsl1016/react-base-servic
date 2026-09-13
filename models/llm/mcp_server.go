@@ -114,6 +114,17 @@ func UpdateMcpServerByServerID(ctx *gin.Context, serverID string, updates map[st
 	return nil
 }
 
+// UpdateMcpServerByServerIDUnscoped 不带软删过滤更新（Bundle 卸载按快照恢复软删行用）。
+func UpdateMcpServerByServerIDUnscoped(ctx *gin.Context, serverID string, updates map[string]interface{}) error {
+	tx := helpers.MysqlClientLLM.Unscoped().Model(&McpServer{}).WithContext(ctx).
+		Where("server_id = ?", serverID).
+		Updates(updates)
+	if tx.Error != nil {
+		return components.ErrorDbUpdate.Wrap(tx.Error)
+	}
+	return nil
+}
+
 func SoftDeleteMcpServerByServerID(ctx *gin.Context, serverID string) error {
 	tx := helpers.MysqlClientLLM.WithContext(ctx).Where("server_id = ?", serverID).Delete(&McpServer{})
 	if tx.Error != nil {

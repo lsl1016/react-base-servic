@@ -297,26 +297,32 @@ func ImportFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy 
 	return skill, err
 }
 
-// importFromMarkdown 是 ImportFromMarkdown 的内部形态，额外返回 created（true=新建，false=同名覆盖）。
-func importFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy string) (*model.Skill, bool, error) {
+// UpsertFromMarkdownForBundle 是 Bundle 安装用的导入（P3）：语义同 ImportFromMarkdown 的
+// 同名覆盖，额外返回覆盖前的整行快照 JSON（空串=本次新建），供 Bundle 卸载回滚。
+func UpsertFromMarkdownForBundle(ctx *gin.Context, req *params.ImportSkillReq, updatedBy string) (*model.Skill, string, error) {
+	return importFromMarkdown(ctx, req, updatedBy)
+}
+
+// importFromMarkdown 是导入的内部形态，额外返回覆盖前整行快照（空串=新建）。
+func importFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy string) (*model.Skill, string, error) {
 	frontmatter, body := splitSkillMarkdown(req.Markdown)
 	if strings.TrimSpace(frontmatter) == "" {
-		return nil, false, components.ErrorSkillImportInvalid.Sprintf("缺少 frontmatter（文件须以 --- 开头）")
+		return nil, "", components.ErrorSkillImportInvalid.Sprintf("缺少 frontmatter（文件须以 --- 开头）")
 	}
 	var meta skillMarkdownFrontmatter
 	if err := yaml.Unmarshal([]byte(frontmatter), &meta); err != nil {
-		return nil, false, components.ErrorSkillImportInvalid.Sprintf("frontmatter 解析失败: %v", err)
+		return nil, "", components.ErrorSkillImportInvalid.Sprintf("frontmatter 解析失败: %v", err)
 	}
 	if strings.TrimSpace(meta.Name) == "" {
-		return nil, false, components.ErrorSkillImportInvalid.Sprintf("name 不能为空（frontmatter）")
+		return nil, "", components.ErrorSkillImportInvalid.Sprintf("name 不能为空（frontmatter）")
 	}
 	if strings.TrimSpace(body) == "" {
-		return nil, false, components.ErrorSkillImportInvalid.Sprintf("正文为空（第二个 --- 之后应为 Skill 正文）")
+		return nil, "", components.ErrorSkillImportInvalid.Sprintf("正文为空（第二个 --- 之后应为 Skill 正文）")
 	}
 
 	callerKey := firstNonEmptyString(meta.CallerKey, req.CallerKey)
 	if callerKey == "" {
-		return nil, false, components.ErrorSkillImportInvalid.Sprintf("caller_key 不能为空（frontmatter 或请求体至少提供一处）")
+		return nil, "", components.ErrorSkillImportInvalid.Sprintf("caller_key 不能为空（frontmatter 或请求体至少提供一处）")
 	}
 	routeValues := meta.RouteValues
 	if routeValues == nil {
@@ -329,7 +335,7 @@ func importFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy 
 	}
 	triggers, err := normalizeSkillTriggers(meta.Triggers)
 	if err != nil {
-		return nil, false, err
+		return nil, "", err
 	}
 	triggersJSON, _ := json.Marshal(triggers)
 	body = strings.TrimSpace(body)
@@ -340,9 +346,10 @@ func importFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy 
 
 	existing, err := model.FindActiveSkillByCallerAndName(ctx, callerKey, strings.TrimSpace(meta.Name))
 	if err != nil {
-		return nil, false, err
+		return nil, "", err
 	}
 	if existing != nil {
+		snapshot, _ := json.Marshal(existing)
 		updates := map[string]interface{}{
 			"description":   description,
 			"triggers_json": string(triggersJSON),
@@ -351,13 +358,13 @@ func importFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy 
 			"updated_by":    createdBy,
 		}
 		if err := model.UpdateSkillBySkillID(ctx, existing.SkillID, updates); err != nil {
-			return nil, false, err
+			return nil, "", err
 		}
 		updated, err := model.GetSkillBySkillID(ctx, existing.SkillID)
 		if err != nil {
-			return nil, false, err
+			return nil, "", err
 		}
-		return updated, false, nil
+		return updated, string(snapshot), nil
 	}
 
 	created, err := CreateSkill(ctx, &params.CreateSkillReq{
@@ -369,7 +376,10 @@ func importFromMarkdown(ctx *gin.Context, req *params.ImportSkillReq, createdBy 
 		RouteValues:  routeValues,
 		Status:       status,
 	}, createdBy)
-	return created, err == nil, err
+	if err != nil {
+		return nil, "", err
+	}
+	return created, "", nil
 }
 
 // splitSkillMarkdown 拆分 frontmatter 与正文：文件以 --- 行开头，到下一个 --- 行结束。
@@ -485,7 +495,7 @@ func ImportFromZip(ctx *gin.Context, zipBytes []byte, base *params.ImportSkillRe
 		}
 
 		item := params.SkillImportItemResp{Name: entry.Name}
-		skill, created, err := importFromMarkdown(ctx, &params.ImportSkillReq{
+		skill, previousJSON, err := importFromMarkdown(ctx, &params.ImportSkillReq{
 			CallerKey:   base.CallerKey,
 			RouteValues: base.RouteValues,
 			Status:      base.Status,
@@ -496,7 +506,7 @@ func ImportFromZip(ctx *gin.Context, zipBytes []byte, base *params.ImportSkillRe
 		} else {
 			item.Name = skill.Name
 			item.SkillID = skill.SkillID
-			item.Created = created
+			item.Created = previousJSON == ""
 		}
 		items = append(items, item)
 	}

@@ -151,6 +151,36 @@ CREATE TABLE IF NOT EXISTS `tblLlmAgent` (
 -- ALTER TABLE `tblLlmAgent`
 --     ADD COLUMN `max_tokens_per_run` INT NOT NULL DEFAULT 0 COMMENT '子run递归token预算上限(0=不限,含委派孙代理)' AFTER `max_steps`;
 
+-- Agent Bundle 安装记录（P3：插件包安装展开写入 agent/skill/mcp 注册表，可回滚卸载）
+CREATE TABLE IF NOT EXISTS `tblLlmBundle` (
+    `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `bundle_id`     VARCHAR(64)  NOT NULL COMMENT 'Bundle唯一标识(bundle_前缀UUID)',
+    `name`          VARCHAR(64)  NOT NULL COMMENT 'Bundle名(kebab-case,manifest声明)',
+    `version`       VARCHAR(32)  NOT NULL DEFAULT '1.0.0' COMMENT '版本(manifest声明)',
+    `source`        VARCHAR(512) NOT NULL COMMENT '安装来源(git URL或本地路径,白名单校验)',
+    `resolved_ref`  VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '钉住的commit(本地路径安装为空)',
+    `manifest_json` TEXT         NULL COMMENT 'manifest原文(JSON)',
+    `installed_by`  VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '安装人',
+    `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted_at`    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '删除标记(0=未删除)',
+    UNIQUE KEY `uk_bundle_id` (`bundle_id`),
+    UNIQUE KEY `uk_bundle_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Bundle安装记录表';
+
+-- Bundle 资源清单：卸载/回滚的依据（previous_state_json 空=该资源由本次安装新建）
+CREATE TABLE IF NOT EXISTS `tblLlmBundleResource` (
+    `id`                   BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',
+    `bundle_id`            VARCHAR(64) NOT NULL COMMENT '所属Bundle ID',
+    `resource_type`        VARCHAR(16) NOT NULL COMMENT '资源类型: agent/skill/mcp_server',
+    `resource_key`         VARCHAR(128) NOT NULL COMMENT '资源键(agent_key/name/服务器名)',
+    `resource_id`          VARCHAR(64) NOT NULL COMMENT '资源ID(agent_id/skill_id/server_id)',
+    `previous_state_json`  MEDIUMTEXT NULL COMMENT '覆盖前的整行快照(JSON,空=本次新建)',
+    `created_at`           DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at`           DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX `idx_bundle_resource` (`bundle_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent Bundle资源清单表';
+
 -- MCP 连接注册表（管理接口登记的 MCP 服务器；启动时拉起客户端并同步工具进 tblLlmTool）
 CREATE TABLE IF NOT EXISTS `tblLlmMcpServer` (
     `id`                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键ID',

@@ -76,6 +76,15 @@ llm:
           default_ref: main
           refs:
             prod: main
+    # Agent Bundle 插件包安装（P3）：manifest + agents/ + skills/ + .mcp.json 打包，
+    # POST /react/bundle/install 展开写入注册表（同名覆盖，可卸载回滚）；
+    # 来源限白名单前缀（内部 git URL 或本地路径），空列表拒绝一切来源。
+    bundle:
+      enabled: true
+      cache_dir: './data/bundle-cache'    # bundle 源仓库 bare mirror 缓存
+      git_timeout_sec: 120                # 单次 git 子操作超时
+      allowed_source_prefixes:            # 来源白名单（按前缀匹配）
+        - 'C:/Users/keke/Desktop/xm/'     # 本地开发/测试用；生产换内部 git 前缀
     # 子 Agent 委派（delegate_agent）：开启前需先执行 sql/init.sql 中 tblLlmAgent 建表；
     # 未配置默认关闭（不注册 delegate_agent、不解析 agent 资源，行为与历史版本一致）。
     subagent:

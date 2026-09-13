@@ -86,6 +86,30 @@ type ReactRuntimeConfig struct {
 	// Workspace 控制服务端代码工作区（P2-1）：服务代码解析 → bare mirror 缓存 →
 	// 每 run git worktree 隔离，并动态挂载只读 repo MCP 工具。
 	Workspace ReactWorkspaceConfig `yaml:"workspace"`
+	// Bundle 控制 Agent Bundle 插件包安装（P3）：agents/skills/mcp.json 打包展开写入
+	// 注册表，同名覆盖可回滚卸载；来源限白名单前缀（内部 git / 本地路径）。
+	Bundle ReactBundleConfig `yaml:"bundle"`
+}
+
+// ReactBundleConfig Agent Bundle 插件包安装配置。
+type ReactBundleConfig struct {
+	// Enabled 控制总开关；未配置默认 false（/react/bundle/* 返回未开启）。
+	Enabled *bool `yaml:"enabled"`
+	// CacheDir 是 bundle 源仓库的 bare mirror 缓存目录。
+	CacheDir string `yaml:"cache_dir"`
+	// GitTimeoutSec 是单次 git 子操作（clone/fetch/worktree/rev-parse）的超时秒数。
+	GitTimeoutSec int `yaml:"git_timeout_sec"`
+	// AllowedSourcePrefixes 是安装来源白名单前缀：git URL 与本地路径都必须命中其一，
+	// 空列表 = 拒绝一切来源（安全默认）。
+	AllowedSourcePrefixes []string `yaml:"allowed_source_prefixes"`
+}
+
+// BundleEnabled 解析 bundle.enabled：未配置默认 false。
+func (c ReactBundleConfig) BundleEnabled() bool {
+	if c.Enabled != nil {
+		return *c.Enabled
+	}
+	return false
 }
 
 // ReactWorkspaceConfig 服务端代码工作区配置。
