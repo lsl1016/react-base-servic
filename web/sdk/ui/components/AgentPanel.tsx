@@ -593,7 +593,7 @@ export function AgentPanel(props: AgentPanelProps) {
             <button
               class="agent-ui-header-icon-btn"
               classList={{ "agent-ui-header-icon-btn-active": laneView() }}
-              title={laneView() ? "切换回对话视图" : "切换到多代理泳道视图（各代理思考流并排）"}
+              title={laneView() ? "切换回对话视图" : "切换到多代理泳道视图（按代理 tab 分页查看）"}
               onClick={() => setLaneView((visible) => !visible)}
             >
               <span class="agent-ui-lane-toggle-label">{laneView() ? "对话" : "泳道"}</span>

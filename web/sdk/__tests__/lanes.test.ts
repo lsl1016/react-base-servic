@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Step } from '../runtime/types';
-import { groupStepsByAgentLane, laneIsActive, laneLabel, laneMainPath } from '../ui/components/lanes';
+import { groupStepsByAgentLane, laneIsActive, laneLabel, laneMainPath, resolveLaneTabPath } from '../ui/components/lanes';
 
 function step(overrides: Partial<Step> = {}): Step {
   return {
@@ -55,5 +55,40 @@ describe('laneIsActive', () => {
     expect(laneIsActive({ path: 'main', label: '', steps: [step({ thoughts: '完', thoughtComplete: true, content: 'ok', contentComplete: true })] })).toBe(false);
     // 用户步骤不算活动
     expect(laneIsActive({ path: 'main', label: '', steps: [step({ role: 'user' })] })).toBe(false);
+  });
+});
+
+describe('resolveLaneTabPath', () => {
+  const idleLane = { path: 'main', label: '主 Agent', steps: [step({ content: 'ok', contentComplete: true })] };
+  const activeSubLane = {
+    path: 'main/geo-agent',
+    label: 'geo-agent',
+    steps: [step({ agentPath: 'main/geo-agent', thoughts: '推理中', thoughtComplete: false })],
+  };
+  const doneSubLane = {
+    path: 'main/finance-agent',
+    label: 'finance-agent',
+    steps: [step({ agentPath: 'main/finance-agent', content: 'ok', contentComplete: true })],
+  };
+
+  it('未手动选择时：运行中自动跟随第一条活动泳道，全部空闲回主泳道', () => {
+    const lanes = [idleLane, doneSubLane, activeSubLane];
+    expect(resolveLaneTabPath(lanes, null, true)).toBe('main/geo-agent');
+    expect(resolveLaneTabPath(lanes, null, false)).toBe('main');
+  });
+
+  it('手动选择后固定该泳道，即使其它泳道在运行', () => {
+    const lanes = [idleLane, doneSubLane, activeSubLane];
+    expect(resolveLaneTabPath(lanes, 'main/finance-agent', true)).toBe('main/finance-agent');
+    expect(resolveLaneTabPath(lanes, 'main', true)).toBe('main');
+  });
+
+  it('所选泳道消失（如切换会话）时回退：运行中跟活动泳道，否则回主泳道', () => {
+    expect(resolveLaneTabPath([idleLane], 'main/gone-agent', true)).toBe('main');
+    expect(resolveLaneTabPath([idleLane, activeSubLane], 'main/gone-agent', true)).toBe('main/geo-agent');
+  });
+
+  it('空泳道列表返回主泳道标识', () => {
+    expect(resolveLaneTabPath([], null, true)).toBe(laneMainPath);
   });
 });

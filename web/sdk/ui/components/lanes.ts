@@ -46,6 +46,20 @@ export function laneLabel(path: string): string {
   return segments[segments.length - 1] || path;
 }
 
+/**
+ * resolveLaneTabPath 计算当前 tab 页应展示的泳道路径：
+ * 用户点击过的泳道优先（固定不跳）；未手动选择时运行中自动跟随第一条活动泳道，
+ * 全部空闲或不在运行则停在主泳道；所选泳道消失（如切换会话）时同样回退。
+ */
+export function resolveLaneTabPath(lanes: AgentLane[], pinnedPath: string | null, isRunning: boolean): string {
+  if (pinnedPath && lanes.some((lane) => lane.path === pinnedPath)) return pinnedPath;
+  if (isRunning) {
+    const active = lanes.find((lane) => laneIsActive(lane));
+    if (active) return active.path;
+  }
+  return lanes[0]?.path ?? laneMainPath;
+}
+
 /** laneIsActive 判定泳道是否有正在进行的活动（未完成的思考/正文/等待中的工具）。 */
 export function laneIsActive(lane: AgentLane): boolean {
   for (let i = lane.steps.length - 1; i >= 0; i--) {

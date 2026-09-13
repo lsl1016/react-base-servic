@@ -1513,5 +1513,92 @@ inputAPIDemoValue.addEventListener('keydown', (event) => {
   });
 });
 
+const layoutSplitter = $('layout-splitter');
+const playgroundRoot = document.querySelector('.rp-root');
+const LEFT_WIDTH_STORAGE_KEY = 'react-playground.left-width';
+const LEFT_WIDTH_DEFAULT = 520;
+const LEFT_WIDTH_MIN = 320;
+const LEFT_WIDTH_KEYBOARD_STEP = 24;
+let currentLeftWidth = LEFT_WIDTH_DEFAULT;
+let splitterDragging = false;
+
+const leftWidthMax = () => Math.max(LEFT_WIDTH_MIN + 200, Math.floor(window.innerWidth * 0.8));
+
+const applyLeftWidth = (width, { persist = true } = {}) => {
+  currentLeftWidth = Math.min(leftWidthMax(), Math.max(LEFT_WIDTH_MIN, Math.round(width)));
+  document.documentElement.style.setProperty('--rp-left-width', `${currentLeftWidth}px`);
+  layoutSplitter.setAttribute('aria-valuenow', String(currentLeftWidth));
+  layoutSplitter.setAttribute('aria-valuemax', String(leftWidthMax()));
+  if (persist) {
+    try {
+      window.localStorage.setItem(LEFT_WIDTH_STORAGE_KEY, String(currentLeftWidth));
+    } catch {
+      // 隐私模式等场景下写入失败可忽略
+    }
+  }
+};
+
+const restoreLeftWidth = () => {
+  let width = LEFT_WIDTH_DEFAULT;
+  try {
+    const saved = Number(window.localStorage.getItem(LEFT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(saved) && saved >= LEFT_WIDTH_MIN) width = saved;
+  } catch {
+    // 读取失败时回退默认宽度
+  }
+  applyLeftWidth(width, { persist: false });
+};
+
+layoutSplitter.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  splitterDragging = true;
+  layoutSplitter.classList.add('rp-splitter-active');
+  playgroundRoot.classList.add('rp-splitting');
+  layoutSplitter.setPointerCapture(event.pointerId);
+});
+
+layoutSplitter.addEventListener('pointermove', (event) => {
+  if (!splitterDragging) return;
+  applyLeftWidth(event.clientX);
+});
+
+const stopSplitterDrag = (event) => {
+  if (!splitterDragging) return;
+  splitterDragging = false;
+  layoutSplitter.classList.remove('rp-splitter-active');
+  playgroundRoot.classList.remove('rp-splitting');
+  if (layoutSplitter.hasPointerCapture(event.pointerId)) {
+    layoutSplitter.releasePointerCapture(event.pointerId);
+  }
+};
+
+layoutSplitter.addEventListener('pointerup', stopSplitterDrag);
+layoutSplitter.addEventListener('pointercancel', stopSplitterDrag);
+
+layoutSplitter.addEventListener('dblclick', () => applyLeftWidth(LEFT_WIDTH_DEFAULT));
+
+layoutSplitter.addEventListener('keydown', (event) => {
+  const step = event.shiftKey ? LEFT_WIDTH_KEYBOARD_STEP * 4 : LEFT_WIDTH_KEYBOARD_STEP;
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    applyLeftWidth(currentLeftWidth - step);
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    applyLeftWidth(currentLeftWidth + step);
+  } else if (event.key === 'Home') {
+    event.preventDefault();
+    applyLeftWidth(LEFT_WIDTH_MIN);
+  } else if (event.key === 'End') {
+    event.preventDefault();
+    applyLeftWidth(leftWidthMax());
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (!splitterDragging) applyLeftWidth(currentLeftWidth, { persist: false });
+});
+
+restoreLeftWidth();
+
 management.init();
 remountAgent();

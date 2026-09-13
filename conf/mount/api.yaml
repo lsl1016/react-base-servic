@@ -24,7 +24,8 @@ llm:
       max_tokens: 32768
 
 python_exec:
-  domain: http://127.0.0.1:8190
+  # react-base-sandbox 容器宿主机映射（docker-compose SANDBOX_HOST_PORT=18190）
+  domain: http://127.0.0.1:18190
   httpStat: false
   idleConnTimeout: 300s
   maxIdleConns: 100

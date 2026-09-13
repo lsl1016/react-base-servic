@@ -61,7 +61,7 @@
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-columns: 520px minmax(0, 1fr);
+  grid-template-columns: var(--rp-left-width, 520px) 6px minmax(0, 1fr);
   overflow: hidden;
   color: var(--text);
   background: #eef2f7;
@@ -73,7 +73,6 @@
 }
 
 .rp-left {
-  border-right: 1px solid var(--line);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: var(--panel);
@@ -83,6 +82,44 @@
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   background: var(--panel-3);
+}
+
+.rp-splitter {
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  background: #eef2f7;
+}
+
+.rp-splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--line);
+  transition: background 0.15s ease;
+}
+
+.rp-splitter:hover::after,
+.rp-splitter:focus-visible::after,
+.rp-splitter.rp-splitter-active::after {
+  background: var(--primary);
+}
+
+.rp-splitter:focus-visible {
+  outline: none;
+}
+
+.rp-root.rp-splitting,
+.rp-root.rp-splitting * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .rp-config-bar,
