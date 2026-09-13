@@ -1,6 +1,11 @@
-# 自动部署：push 到 main 后由 GitHub 官方 runner SSH 登录 ECS 执行发布。
+# 自动部署：push 到 main 后由 GitHub 官方 runner 打包代码、直传 ECS 解压构建。
 # 依赖仓库 secret：ECS_SSH_KEY（部署专用私钥，公钥已装入 ECS authorized_keys）。
-# 注意：仅由 push/workflow_dispatch 触发，不响应 pull_request，避免公开仓库被恶意 PR 利用。
+# 说明：
+# - ECS 不再执行 git pull（国内直连 github.com 不稳定，443 经常超时），
+#   改为 runner 侧 checkout 后 tar 打包、scp 直传，服务器全程不需要出网；
+# - deploy/compose/conf/mount 不在打包范围内，服务器上的 api.yaml（含真实 key）不会被覆盖；
+# - 注意：仓库里删除的文件不会同步从服务器删除，历史文件堆积时手动清理或重新 clone。
+# 仅由 push/workflow_dispatch 触发，不响应 pull_request，避免公开仓库被恶意 PR 利用。
 name: deploy
 
 on:
@@ -13,20 +18,40 @@ concurrency:
   group: deploy-ecs
   cancel-in-progress: true
 
+env:
+  ECS_HOST: 118.31.6.254
+  ECS_USER: root
+  DEPLOY_DIR: /opt/react-base-service
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to ECS
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: 118.31.6.254
-          username: root
-          key: ${{ secrets.ECS_SSH_KEY }}
-          script_stop: true
-          script: |
-            set -e
-            cd /opt/react-base-service
-            git pull --ff-only
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pack & deploy
+        env:
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null /tmp/deploy_key
+          printf '%s\n' "$ECS_SSH_KEY" > /tmp/deploy_key
+          SSH="ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 $ECS_USER@$ECS_HOST"
+
+          tar -czf /tmp/src.tar.gz \
+            --exclude=./.git \
+            --exclude=./deploy/compose/conf/mount \
+            .
+
+          scp -i /tmp/deploy_key -o StrictHostKeyEncoding=no -o StrictHostKeyChecking=no \
+            /tmp/src.tar.gz "$ECS_USER@$ECS_HOST:/tmp/src.tar.gz"
+          rm /tmp/deploy_key
+
+          $SSH "set -e
+            mkdir -p $DEPLOY_DIR
+            cd $DEPLOY_DIR
+            tar -xzf /tmp/src.tar.gz
+            rm -f /tmp/src.tar.gz
             docker compose up -d --build
-            docker image prune -f
+            docker image prune -f"
